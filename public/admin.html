@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KM0 · Quản trị</title>
+<style>
+  :root { --bg: #F7F5F2; --card: #fff; --ink: #1F2328; --muted: #6B7280; --line: #E5E1DA; --brand: #E8590C; --ok: #15803D; --bad: #B91C1C; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #16181B; --card: #1E2125; --ink: #E8E6E3; --muted: #9CA3AF; --line: #30343A; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; } p.sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; font: inherit; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+  button { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  button:hover { border-color: var(--brand); } button b { display: block; } button span { color: var(--muted); font-size: 13px; }
+  button.chinh { background: var(--brand); color: #fff; border-color: var(--brand); } button.chinh span { color: #FFE8D6; }
+  button:disabled { opacity: .5; cursor: wait; }
+  pre { white-space: pre-wrap; word-break: break-word; background: rgba(0,0,0,.04); border-radius: 8px; padding: 12px; margin: 0; font-size: 13px; min-height: 60px; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } h2 { font-size: 15px; margin: 0 0 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>KM0 · Quản trị hệ thống</h1>
+  <p class="sub">Thay cho menu "KM0" trong Google Sheet cũ. Chỉ chủ sở hữu (người biết ADMIN_SECRET) dùng được. <a href="/">← Về ứng dụng</a></p>
+  <div class="card">
+    <label for="bi">Mật khẩu quản trị (ADMIN_SECRET)</label>
+    <input id="bi" type="password" autocomplete="current-password" placeholder="Dán giá trị ADMIN_SECRET đã đặt trên Vercel">
+  </div>
+  <div class="card">
+    <h2>Database</h2>
+    <div class="grid">
+      <button class="chinh" data-fn="checkDatabaseVersion"><b>Kiểm tra database</b><span>đủ bảng, đủ cột chưa</span></button>
+      <button data-fn="initializeDatabase"><b>Khởi tạo / vá database</b><span>thêm bảng/cột thiếu, tạo admin</span></button>
+      <button data-fn="chanDoanKetNoi"><b>Chẩn đoán kết nối</b><span>đọc/ghi Supabase được không</span></button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Dữ liệu mẫu (chỉ khi database còn trống)</h2>
+    <div class="grid">
+      <button data-fn="seedDemoData"><b>Nạp dữ liệu DEMO</b><span>3 công trình mẫu</span></button>
+      <button data-fn="seedMinhChauPQ"><b>Nạp công trình Minh Châu PQ</b><span>DELTA-AQG</span></button>
+      <button data-fn="napSoLieuMinhChauPQ"><b>Nạp số liệu báo cáo MC</b><span>đến 14/09/2026</span></button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Tự động</h2>
+    <div class="grid">
+      <button data-fn="caiTuDongBaoCao"><b>Bật nhắc nhật ký &amp; báo cáo ngày</b><span>cần sql/cron.sql đã chạy</span></button>
+    </div>
+  </div>
+  <div class="card"><h2>Kết quả</h2><pre id="kq">Chưa chạy lệnh nào.</pre></div>
+</main>
+<script>
+  var kq = document.getElementById('kq'), bi = document.getElementById('bi');
+  try { bi.value = sessionStorage.getItem('km0_admin') || ''; } catch (e) { /* trình duyệt chặn lưu tạm */ }
+  document.querySelectorAll('button[data-fn]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var fn = b.getAttribute('data-fn');
+      if (/^seed|^napSoLieu/.test(fn) && !confirm('Nạp dữ liệu mẫu vào database thật?')) return;
+      try { sessionStorage.setItem('km0_admin', bi.value); } catch (e) { /* bỏ qua */ }
+      document.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+      kq.className = ''; kq.textContent = 'Đang chạy ' + fn + '…';
+      fetch('/api/admin', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-km0-admin': bi.value }, body: JSON.stringify({ fn: fn, args: [] }) })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          kq.className = j.ok ? 'ok' : 'bad';
+          var t = (j.ok ? '✓ ' : '✗ ') + fn + (j.ms ? ' · ' + j.ms + ' ms' : '') + '\n\n';
+          if (j.alerts && j.alerts.length) t += j.alerts.join('\n\n') + '\n\n';
+          if (!j.ok) t += j.error; else if (j.result !== null && j.result !== undefined) t += (typeof j.result === 'string' ? j.result : JSON.stringify(j.result, null, 2));
+          kq.textContent = t;
+        })
+        .catch(function (e) { kq.className = 'bad'; kq.textContent = 'Lỗi mạng: ' + e.message; })
+        .finally(function () { document.querySelectorAll('button').forEach(function (x) { x.disabled = false; }); });
+    });
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "outputDirectory": "public",
+  "regions": ["sin1"],
+  "functions": { "api/*.js": { "maxDuration": 60 } },
+  "rewrites": [{ "source": "/api/file/d/:id/view", "destination": "/api/file?id=:id" }],
+  "headers": [{
+    "source": "/(.*)",
+    "headers": [
+      { "key": "X-Content-Type-Options", "value": "nosniff" },
+      { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+      { "key": "X-Frame-Options", "value": "SAMEORIGIN" }
+    ]
+  }]
+}

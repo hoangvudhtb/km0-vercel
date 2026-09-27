@@ -1,0 +1,11 @@
+{
+  "name": "km0-vercel",
+  "version": "1.0.34",
+  "private": true,
+  "description": "KM0 quản lý công trình — Code.gs chạy trên Vercel, dữ liệu trong Supabase (Postgres). Không cần thư viện npm.",
+  "engines": { "node": "22.x" },
+  "scripts": {
+    "dev": "node tools/dev.js",
+    "dong-goi": "node tools/build.js"
+  }
+}
