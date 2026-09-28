@@ -461,7 +461,7 @@ svg.vz text { pointer-events: none; }
 
 </script>
 <script>
-const FE_BUILD_ = '1.0.35'; // cùng bản BACKEND_BUILD — Code.gs kiểm tra khi nhúng JS (jsBuildGuard_)
+const FE_BUILD_ = '1.0.37'; // cùng bản BACKEND_BUILD — Code.gs kiểm tra khi nhúng JS (jsBuildGuard_)
 /* ===== 00_core: trạng thái, tiện ích, gọi API, modal / toast ===== */
 'use strict';
 var S = { token: null, user: null, cfg: {}, perms: {}, menu: [], lists: {}, settings: {}, roleLabels: {}, appName: 'KM0', build: '', unread: 0,
@@ -5604,7 +5604,9 @@ MODULES.hmnt = {
           const loai = {}; LOAI.forEach(l => { loai[l[0]] = false; }); $$('.hscl-loai:checked', mm.el).forEach(c => { loai[c.value] = true; });
           if (!Object.values(loai).some(Boolean)) return toast('Tích ít nhất 1 loại biên bản cần xuất.', 'warn');
           withBusy(b, () => api('apiXuatHoSoChatLuongXlsx', cts[0], rows.map(r => r.MaHM), $('#hscl-ten', mm.el).value, loai)).then(r => {
-            downloadBinary(r.filename, r.base64, r.mime); mm.close(); toast('Đã tạo hồ sơ chất lượng cho ' + r.soHangMuc + ' hạng mục.', 'success');
+            downloadBinary(r.filename, r.base64, r.mime); mm.close();
+            toast('Đã tạo hồ sơ chất lượng cho ' + r.soHangMuc + ' hạng mục' + (r.theoMau ? ' theo file mẫu "' + r.theoMau + '"' : ' (mẫu mặc định — tải "File mẫu hồ sơ" ở Danh mục hạng mục nghiệm thu để xuất đúng mẫu công trình)') + '.', 'success');
+            (r.canhBao || []).slice(0, 4).forEach(w => toast(w, 'warn'));
           }).catch(fail);
         } }] });
       return m;
@@ -5616,11 +5618,195 @@ MODULES.hmnt = {
     { text: 'Mở biên bản nghiệm thu', icon: 'bi-box-arrow-up-right', show: !!r.MaBB, fn: row => navigate('e:bbnt', { pre: { field: 'MaBB', values: [row.MaBB], label: 'Biên bản ' + row.MaBB } }) }
   ]
 };
+/* Round #39 — dán nguyên khối số liệu cọc copy từ bảng tính thiết kế (Excel) vào Dòng đo cao độ */
+const COT_DAN_CD_ = ['Tên cọc', 'Lý trình (m)', 'K/c trái (m)', 'CĐTK trái (m)', 'Sai số trái (mm)', 'CĐTK tim (m)', 'Sai số tim (mm)', 'K/c phải (m)', 'CĐTK phải (m)', 'Sai số phải (mm)'];
+function danDongDo_(maPLCD, onDone) {
+  if (!maPLCD) return toast('Mở từ nút "Dán số liệu từ Excel" / "Xem dòng đo" của 1 Phụ lục cao độ.', 'warn');
+  const m = modal({ title: 'Dán số liệu dòng đo — phụ lục ' + maPLCD, size: 'lg', body:
+    '<p class="small">Trong Excel, chọn khối số liệu (mỗi dòng 1 cọc, <b>đúng thứ tự cột</b> dưới đây) → Ctrl+C → bấm vào ô dưới → Ctrl+V. Dòng tiêu đề (nếu copy kèm) tự bỏ qua. Số dùng dấu phẩy hay dấu chấm thập phân đều được; lý trình dạng "Km0+014.38" cũng được.</p>' +
+    '<div class="tbl-wrap"><table class="tbl small"><thead><tr>' + COT_DAN_CD_.map((c, i) => '<th>' + (i + 1) + '. ' + esc(c) + '</th>').join('') + '</tr></thead></table></div>' +
+    '<textarea class="inp mt-2" id="dd-txt" rows="12" style="font-family:monospace;white-space:pre" placeholder="C1\t14.38\t3.5\t3.480\t-3\t3.550\t-2\t3.5\t3.480\t2"></textarea>' +
+    '<div class="small muted mt-1" id="dd-dem"></div>' +
+    '<label class="row small mt-2" style="gap:6px"><input type="checkbox" id="dd-thay"> Xoá hết dòng đo cũ của phụ lục này trước khi dán (thay thế)</label>',
+    buttons: [{ text: 'Huỷ' }, { text: 'Nạp số liệu', icon: 'bi-clipboard-check', cls: 'primary', fn: (mm, b) => {
+      const txt = $('#dd-txt', mm.el).value;
+      if (!txt.trim()) return toast('Chưa dán số liệu.', 'warn');
+      withBusy(b, () => api('apiDanDongDoCaoDo', maPLCD, txt, $('#dd-thay', mm.el).checked)).then(r => {
+        mm.close(); toast('Đã nạp ' + r.soDong + ' dòng đo cao độ.', 'success'); (r.canhBao || []).slice(0, 4).forEach(w => toast(w, 'warn')); if (onDone) onDone();
+      }).catch(fail);
+    } }] });
+  const ta = $('#dd-txt', m.el), dem = $('#dd-dem', m.el);
+  ta.addEventListener('input', () => { const n = ta.value.split(/\r?\n/).filter(l => l.trim()).length; dem.textContent = n ? n + ' dòng' : ''; });
+  return m;
+}
 MODULES.plcd = {
   actions: (r, ctx) => [
-    { text: 'Xem dòng đo', icon: 'bi-list-ol', fn: row => navigate('e:plcdd', { pre: { field: 'MaPLCD', values: [row.MaPLCD], label: 'Dòng đo của phụ lục ' + row.MaPLCD } }) }
+    { text: 'Xem dòng đo', icon: 'bi-list-ol', fn: row => navigate('e:plcdd', { pre: { field: 'MaPLCD', values: [row.MaPLCD], label: 'Dòng đo của phụ lục ' + row.MaPLCD } }) },
+    { text: 'Dán số liệu từ Excel', icon: 'bi-clipboard-plus', show: can('plcdd', 'manage') || can('plcdd', 'create'), fn: (row, c) => danDongDo_(row.MaPLCD, () => c.reload()) }
   ]
 };
+MODULES.plcdd = {
+  toolbar: ctx => [
+    { text: 'Dán từ Excel', icon: 'bi-clipboard-plus', show: can('plcdd', 'manage') || can('plcdd', 'create'), fn: () => {
+      const ma = ctx.pre && ctx.pre.field === 'MaPLCD' && ctx.pre.values.length === 1 ? ctx.pre.values[0] : (ctx.flt && ctx.flt.MaPLCD) || '';
+      danDongDo_(ma, () => ctx.reload());
+    } }]
+};
+
+/* ====================== Round #40 — NHẬP DANH MỤC NGHIỆM THU & SỐ LIỆU PHÂN LỚP TỪ FILE EXCEL ====================== */
+/** Giải nén .xlsx ngay trên trình duyệt, chỉ gửi lên máy chủ các phần cần đọc (workbook, chuỗi dùng chung, các sheet chọn)
+ *  -> file hồ sơ KCS nặng vài MB (sheet kẻ ô tới cột XEY…) vẫn gửi được qua giới hạn 4,5MB của Vercel. chon(sheets, names) -> [đường dẫn sheet]. */
+function docGoiXml_(file, chon) {
+  return file.arrayBuffer().then(buf => {
+    const u8 = new Uint8Array(buf), dv = new DataView(buf), td = new TextDecoder('utf-8');
+    if (!(u8[0] === 0x50 && u8[1] === 0x4B)) throw new Error('Chỉ nhận file Excel .xlsx (file .xls cũ: mở bằng Excel rồi "Lưu thành" .xlsx).');
+    if (typeof DecompressionStream === 'undefined') throw new Error('Trình duyệt quá cũ để đọc file — dùng Chrome / Edge bản mới.');
+    let e = -1; for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) throw new Error('File không đúng định dạng .xlsx.');
+    const n = dv.getUint16(e + 10, true), ent = {}; let p = dv.getUint32(e + 16, true);
+    for (let k = 0; k < n && p + 46 <= u8.length; k++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+      ent[td.decode(u8.subarray(p + 46, p + 46 + nl)).replace(/^\//, '')] = { method: dv.getUint16(p + 10, true), csize: dv.getUint32(p + 20, true), usize: dv.getUint32(p + 24, true), off: dv.getUint32(p + 42, true) };
+      p += 46 + nl + xl + cl;
+    }
+    const text = name => {
+      const x = ent[name]; if (!x) return Promise.resolve(null);
+      const st = x.off + 30 + dv.getUint16(x.off + 26, true) + dv.getUint16(x.off + 28, true), data = u8.slice(st, st + x.csize);
+      return x.method === 0 ? Promise.resolve(td.decode(data)) : new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer().then(b => td.decode(b));
+    };
+    return Promise.all([text('xl/workbook.xml'), text('xl/_rels/workbook.xml.rels')]).then(r => {
+      if (!r[0]) throw new Error('Không đọc được file Excel (thiếu workbook).');
+      const P = new DOMParser(), wb = P.parseFromString(r[0], 'application/xml'), rl = P.parseFromString(r[1] || '<x/>', 'application/xml');
+      const tags = (d, t) => Array.prototype.slice.call(d.getElementsByTagNameNS('*', t));
+      const rel = {}; tags(rl, 'Relationship').forEach(x => { rel[x.getAttribute('Id')] = x.getAttribute('Target'); });
+      const sheets = tags(wb, 'sheet').map(s => {
+        const rid = s.getAttribute('r:id') || s.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+        let t = rel[rid] || ''; t = t.charAt(0) === '/' ? t.slice(1) : 'xl/' + t.replace(/^\.\//, '');
+        return { name: s.getAttribute('name'), path: t, an: /hidden/i.test(s.getAttribute('state') || ''), size: (ent[t] || {}).usize || 0 };
+      });
+      const names = tags(wb, 'definedName').map(d => ({ name: d.getAttribute('name'), local: d.getAttribute('localSheetId'), ref: d.textContent }));
+      const ds = ['xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/sharedStrings.xml'].concat(chon(sheets, names) || []);
+      return Promise.all(ds.map(q => text(q).then(t => [q, t]))).then(ps => { const o = {}; let tong = 0; ps.forEach(x => { if (x[1] !== null) { o[x[0]] = x[1]; tong += x[1].length; } }); if (tong > 3800000) throw new Error('File quá lớn để đọc (' + Math.round(tong / 1048576) + 'MB phần cần đọc) — tách bớt sheet rồi thử lại.'); return o; });
+    });
+  });
+}
+/** Sheet DATA của file hồ sơ: tên vùng DATA -> sheet; không có thì sheet tên "DATA…"; không có nữa thì mọi sheet nhỏ đang hiện. */
+function chonSheetData_(sheets, names) {
+  const dn = names.find(n => n.name === 'DATA' && (n.local === null || n.local === ''));
+  const ten = dn ? String(dn.ref).split('!')[0].replace(/^'|'$/g, '').replace(/''/g, "'") : '';
+  const s = sheets.find(x => x.name === ten) || sheets.find(x => !x.an && /^data/i.test(x.name));
+  return s ? [s.path] : sheets.filter(x => !x.an && x.size < 700000).map(x => x.path);
+}
+
+PAGES.nhaphmnt = { title: 'Nhập danh mục nghiệm thu từ file Excel', render: function (ctx, params) {
+  withCTs(ctx, () => ensureLookups(['lhm', 'nhky']).then(() => {
+    if (!ctx.alive()) return;
+    const st = { rows: null, sheet: '', canhBao: [] };
+    const lhms = (S.lk.lhm || []).filter(l => l.TrangThai !== 'Ngừng dùng');
+    ctPage(ctx, { params: params, required: true,
+      toolbar: '<select class="inp sm fsel" id="nh-lhm" style="max-width:220px" aria-label="Hạng mục nghiệm thu"><option value="">— Hạng mục nghiệm thu —</option>' + lhms.map(l => '<option value="' + esc(l.MaLHM) + '"' + (lhms.length === 1 ? ' selected' : '') + '>' + esc(l.TenLHM) + '</option>').join('') + '</select>' +
+        '<label class="btn" style="cursor:pointer"><i class="bi bi-folder2-open"></i>Chọn file hồ sơ (.xlsx)…<input type="file" id="nh-file" accept=".xlsx,.xlsm" hidden></label><button class="btn" id="nh-mau" title="File Excel trống đúng cột (cho người chưa có file hồ sơ KCS)"><i class="bi bi-download"></i>File mẫu nhập</button><span class="small muted" id="nh-ten"></span>',
+      right: '<button class="btn primary" id="nh-nhap" disabled><i class="bi bi-box-arrow-in-down"></i>Nhập vào hệ thống</button>',
+      load: (maCT, body) => { st.maCT = maCT; if (st.rows) ve(body); else body.innerHTML = gioiThieu(); } });
+    function gioiThieu() {
+      return '<div class="card"><div class="card-b"><div class="empty" style="padding:18px 8px"><i class="bi bi-file-earmark-spreadsheet"></i>Chọn <b>chính file hồ sơ nghiệm thu (KCS) đang dùng</b> — hệ thống đọc sheet DATA (STT, Ký hiệu, Công việc nghiệm thu, Lớp NT, Lý trình, Vị trí, Ngày YCNT, Ngày NT, Giờ, KL, CĐT-1, TVGS-1, ĐVTC-1…).</div>' +
+        '<p class="hint">Bạn xem trước, sửa trực tiếp trong bảng, bỏ tích dòng không nhập hoặc thêm dòng rồi mới bấm "Nhập vào hệ thống". Dòng trùng (cùng Ký hiệu + Lớp + Lý trình + Vị trí) sẽ <b>cập nhật</b> hạng mục đã có, không sinh dòng lặp. Người ký tự gom thành Nhóm ký (dùng lại nhóm trùng tên). Số liệu cao độ từng lớp: nạp từ file phần mềm phân lớp ở màn Hạng mục nghiệm thu (nút "Nạp cao độ từ file phân lớp").</p></div></div>';
+    }
+    const TXT = [['KyHieu', 'Ký hiệu', 70], ['CongViecNghiemThu', 'Công việc nghiệm thu', 230], ['SoLop', 'Lớp', 44, 'n'], ['LyTrinh', 'Lý trình', 150], ['ViTri', 'Vị trí', 110], ['NgayYCNT', 'Ngày YCNT', 128, 'd'], ['NgayNT', 'Ngày NT', 128, 'd'], ['GioBD', 'Giờ BĐ', 74, 't'], ['GioKT', 'Giờ KT', 74, 't'], ['KLNghiemThu', 'KL NT', 70, 'n']];
+    function kyTom(o) { const k = o.ky || {}; return [k.CDT1_Ten, k.TVGS1_Ten, k.TVGS2_Ten, k.DVTC1_Ten].filter(Boolean).join(' · '); }
+    function ve(body) {
+      body = body || $('.page-body', ctx.el);
+      const chon = st.rows.filter(o => o._chon !== false).length, trung = st.rows.filter(o => o._chon !== false && o.trung).length;
+      body.innerHTML = '<div class="kpis">' + kpiCard({ l: 'Dòng đọc được', v: st.rows.length, s: 'sheet ' + st.sheet }) + kpiCard({ l: 'Sẽ tạo mới', v: chon - trung, cls: 'ok' }) + kpiCard({ l: 'Sẽ cập nhật (trùng)', v: trung, cls: trung ? 'warn' : '' }) + '</div>' +
+        (st.canhBao.length ? '<div class="alert-i warn mt-2"><i class="bi bi-exclamation-triangle"></i><div>' + st.canhBao.slice(0, 8).map(esc).join('<br>') + '</div></div>' : '') +
+        '<div class="card mt-2"><div class="card-b flush"><div class="tbl-wrap"><table class="tbl small" id="nh-tbl"><thead><tr><th><input type="checkbox" id="nh-all"' + (chon === st.rows.length ? ' checked' : '') + '></th><th>STT</th>' +
+        TXT.map(c => '<th>' + esc(c[1]) + '</th>').join('') + '<th>Người ký</th><th>Trạng thái</th><th></th></tr></thead><tbody>' +
+        st.rows.map((o, i) => '<tr data-i="' + i + '"' + (o._chon === false ? ' style="opacity:.45"' : '') + '><td><input type="checkbox" data-chon' + (o._chon === false ? '' : ' checked') + '></td><td class="nowrap">' + esc(o.STT === '' ? '+' : o.STT) + '</td>' +
+          TXT.map(c => '<td><input class="inp sm" data-k="' + c[0] + '" style="width:' + c[2] + 'px" type="' + (c[3] === 'd' ? 'date' : c[3] === 't' ? 'time' : 'text') + '" value="' + esc(o[c[0]] === undefined ? '' : o[c[0]]) + '"></td>').join('') +
+          '<td class="xs muted" style="max-width:220px">' + esc(kyTom(o)) + '</td><td class="nowrap">' + (o.trung ? '<span class="badge warn">Cập nhật ' + esc(o.trung) + '</span>' : '<span class="badge ok">Mới</span>') + '</td>' +
+          '<td><button class="btn sm icon ghost" data-xoa title="Bỏ dòng" aria-label="Bỏ dòng"><i class="bi bi-x-lg"></i></button></td></tr>').join('') +
+        '</tbody></table></div></div></div><div class="row mt-2" style="gap:8px"><button class="btn" id="nh-them"><i class="bi bi-plus-lg"></i>Thêm dòng (chép dòng cuối, lớp tiếp theo)</button><span class="small muted">Ô trống "Ngày NT" phải điền trước khi nhập.</span></div>';
+      $('#nh-nhap', ctx.el).disabled = !chon;
+      $('#nh-nhap', ctx.el).innerHTML = '<i class="bi bi-box-arrow-in-down"></i>Nhập ' + chon + ' dòng vào hệ thống';
+      const tb = $('#nh-tbl', body);
+      tb.addEventListener('input', ev => { const tr = ev.target.closest('tr[data-i]'), k = ev.target.getAttribute('data-k'); if (!tr || !k) return; const o = st.rows[+tr.getAttribute('data-i')], v = ev.target.value; o[k] = /^(SoLop|KLNghiemThu)$/.test(k) ? (v.trim() === '' ? '' : Number(v.replace(',', '.'))) : v; });
+      tb.addEventListener('change', ev => { const tr = ev.target.closest('tr[data-i]'); if (tr && ev.target.hasAttribute('data-chon')) { st.rows[+tr.getAttribute('data-i')]._chon = ev.target.checked; ve(); } });
+      tb.addEventListener('click', ev => { const b = ev.target.closest('[data-xoa]'); if (!b) return; st.rows.splice(+b.closest('tr').getAttribute('data-i'), 1); ve(); });
+      $('#nh-all', body).addEventListener('change', ev => { st.rows.forEach(o => { o._chon = ev.target.checked; }); ve(); });
+      $('#nh-them', body).addEventListener('click', () => {
+        const a = st.rows[st.rows.length - 1] || {}, o = JSON.parse(JSON.stringify(a)); o.STT = ''; o.trung = ''; o._chon = true;
+        if (o.SoLop !== '' && o.SoLop !== undefined && !isNaN(o.SoLop)) {
+          // lớp tiếp theo = lớp lớn nhất của cùng Ký hiệu + Lý trình + Vị trí + 1 (file thường xếp lớp giảm dần 4, 3, 2, 1)
+          const cu = String(o.SoLop), cung = st.rows.filter(x => x.KyHieu === o.KyHieu && x.LyTrinh === o.LyTrinh && x.ViTri === o.ViTri && x.SoLop !== '' && !isNaN(x.SoLop));
+          o.SoLop = Math.max.apply(null, cung.map(x => Number(x.SoLop)).concat([Number(o.SoLop)])) + 1;
+          o.CongViecNghiemThu = String(o.CongViecNghiemThu || '').replace(new RegExp('(Lớp\\s*)' + cu + '$', 'i'), '$1' + o.SoLop);
+        }
+        st.rows.push(o); ve(); const trs = $$('#nh-tbl tbody tr', ctx.el); if (trs.length) trs[trs.length - 1].scrollIntoView({ block: 'nearest' });
+      });
+    }
+    $('#nh-mau', ctx.el).addEventListener('click', e => withBusy(e.currentTarget, () => api('apiMauNhapDanhMucNT')).then(r => downloadBinary(r.filename, r.base64, r.mime)).catch(fail));
+    $('#nh-file', ctx.el).addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0]; e.target.value = ''; if (!f) return;
+      $('#nh-ten', ctx.el).textContent = 'Đang đọc ' + f.name + '…';
+      docGoiXml_(f, chonSheetData_).then(tep => api('apiDocDanhMucNT', $('#pg-ct', ctx.el).value, tep)).then(r => {
+        if (!ctx.alive()) return;
+        st.rows = r.rows; st.sheet = r.sheet; st.canhBao = r.canhBao || []; $('#nh-ten', ctx.el).textContent = f.name; ve();
+      }).catch(err => { $('#nh-ten', ctx.el).textContent = ''; fail(err); });
+    });
+    $('#nh-nhap', ctx.el).addEventListener('click', e => {
+      const lhm = $('#nh-lhm', ctx.el).value; if (!lhm) return toast('Chọn "Hạng mục nghiệm thu" (Giao thông, San nền…) ở thanh công cụ.', 'warn');
+      const ds = (st.rows || []).filter(o => o._chon !== false);
+      const thieu = ds.filter(o => !o.NgayNT || !String(o.CongViecNghiemThu || '').trim() || !String(o.KyHieu || '').trim());
+      if (thieu.length) return toast(thieu.length + ' dòng thiếu Ký hiệu / Công việc nghiệm thu / Ngày NT — điền hoặc bỏ tích.', 'warn');
+      withBusy(e.currentTarget, () => api('apiNhapDanhMucNT', $('#pg-ct', ctx.el).value, lhm, ds)).then(r => {
+        (r.loi || []).slice(0, 5).forEach(w => toast(w, 'error')); (r.canhBao || []).forEach(w => toast(w, 'warn'));
+        toast('Đã nhập: ' + r.moi + ' hạng mục mới, ' + r.capNhat + ' cập nhật' + (r.nhomKyMoi ? ', ' + r.nhomKyMoi + ' nhóm ký mới' : '') + (r.loi && r.loi.length ? ', ' + r.loi.length + ' dòng lỗi' : '') + '.', r.loi && r.loi.length ? 'warn' : 'success');
+        if (r.ids && r.ids.length) navigate('e:hmnt', { pre: { field: 'MaHM', values: r.ids, label: 'Vừa nhập từ file (' + r.ids.length + ' hạng mục)' } });
+      }).catch(fail);
+    });
+  })).catch(e => pageError(ctx, e));
+} };
+
+/** Nạp cao độ từ file phần mềm phân lớp: mỗi lớp (sheet KC_CD1…n) -> Phụ lục cao độ của 1 hạng mục NT (mặc định: hạng mục cùng số lớp trong danh sách đang lọc). */
+function napPhanLop_(ctx) {
+  const hms = filteredRows(ctx), cts = uniq(hms.map(r => r.MaCT));
+  if (!hms.length) return toast('Lọc danh sách Hạng mục nghiệm thu còn các lớp của 1 hạng mục / lý trình (vd tìm "Tuyến 6"), rồi bấm lại.', 'warn');
+  if (cts.length > 1) return toast('Danh sách đang lọc có nhiều công trình — lọc theo 1 công trình.', 'warn');
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.xlsx,.xlsm';
+  inp.addEventListener('change', () => {
+    const f = inp.files && inp.files[0]; if (!f) return;
+    toast('Đang đọc ' + f.name + '…', 'info', 1500);
+    docGoiXml_(f, sheets => sheets.filter(s => !s.an && (/^kc_?cd/i.test(s.name) || s.size < 500000)).map(s => s.path)).then(tep => api('apiDocFilePhanLop', cts[0], tep)).then(r => {
+      const tenHM = h => (h.CongViecNghiemThu || h.MaHM) + (h.ViTri ? ' — ' + h.ViTri : '');
+      const mac = x => { const c = hms.filter(h => String(h.SoLop) === String(x.lop)); return c.length === 1 ? c[0].MaHM : ''; };
+      const m = modal({ title: 'Nạp cao độ từ file phân lớp — ' + f.name, size: 'lg', body:
+        '<p class="small">' + (r.hangMuc ? 'Hạng mục trong file: <b>' + esc(r.hangMuc) + '</b>. ' : '') + 'Chỉ lấy <b>Khoảng cách TK</b> và <b>Cao độ TK</b> (trái / tim / phải) của từng cọc và các điểm phụ; dòng đo cũ của hạng mục được thay bằng số liệu trong file. Sai số đo nhập riêng ở Dòng đo cao độ.</p>' +
+        (r.canhBao && r.canhBao.length ? '<div class="alert-i warn"><i class="bi bi-exclamation-triangle"></i><div>' + r.canhBao.map(esc).join('<br>') + '</div></div>' : '') +
+        '<div class="tbl-wrap mt-2"><table class="tbl small"><thead><tr><th>Lớp</th><th>Sheet</th><th class="num">Cọc</th><th class="num">Điểm đo</th><th>Gán cho hạng mục nghiệm thu</th></tr></thead><tbody>' +
+        r.lop.map((x, i) => '<tr><td class="nowrap"><b>Lớp ' + esc(x.lop) + '</b></td><td>' + esc(x.sheet) + '</td><td class="num">' + x.soCoc + '</td><td class="num">' + x.soDiem + '</td><td><select class="inp sm" data-pl="' + i + '"><option value="">— không nạp —</option>' +
+          hms.map(h => '<option value="' + esc(h.MaHM) + '"' + (mac(x) === h.MaHM ? ' selected' : '') + '>' + esc(tenHM(h)) + '</option>').join('') + '</select></td></tr>').join('') + '</tbody></table></div>' +
+        '<p class="hint">Tự gán theo số lớp khi danh sách đang lọc có đúng 1 hạng mục cùng lớp; chưa đúng thì chọn lại.</p>',
+        buttons: [{ text: 'Huỷ' }, { text: 'Nạp số liệu', icon: 'bi-box-arrow-in-down', cls: 'primary', fn: (mm, b) => {
+          const ds = []; $$('[data-pl]', mm.el).forEach(sel => { if (sel.value) { const x = r.lop[+sel.getAttribute('data-pl')]; ds.push({ maHM: sel.value, dong: x.dong, ten: 'Lớp ' + x.lop }); } });
+          if (!ds.length) return toast('Chưa gán lớp nào.', 'warn');
+          if (uniq(ds.map(d => d.maHM)).length < ds.length) return toast('Có 2 lớp cùng gán vào 1 hạng mục — chọn lại.', 'warn');
+          withBusy(b, () => api('apiNapPhanLop', cts[0], ds)).then(k => {
+            mm.close(); (k.loi || []).slice(0, 5).forEach(w => toast(w, 'error'));
+            toast('Đã nạp cao độ cho ' + k.soHM + ' hạng mục (' + k.soDong + ' dòng đo' + (k.taoPL ? ', tạo ' + k.taoPL + ' phụ lục' : '') + ').', 'success'); ctx.reload();
+          }).catch(fail);
+        } }] });
+      return m;
+    }).catch(fail);
+  });
+  inp.click();
+}
+MODULES.hmnt.toolbar = (function (cu) {
+  return ctx => cu(ctx).concat([
+    { text: 'Nhập từ file hồ sơ Excel', icon: 'bi-file-earmark-arrow-up', show: can('hmnt', 'manage') || can('hmnt', 'create'), fn: () => navigate('p:nhaphmnt') },
+    { text: 'Nạp cao độ từ file phân lớp', icon: 'bi-rulers', show: can('plcdd', 'manage') || can('plcdd', 'create'), fn: () => napPhanLop_(ctx) }
+  ]);
+})(MODULES.hmnt.toolbar);
 
 /* ===== 70_portal: cổng chủ đầu tư / giám sát (chỉ xem) ===== */
 function renderPortal(p) {
