@@ -5594,11 +5594,16 @@ MODULES.hmnt = {
       const cts = rows.map(r => r.MaCT).filter((v, i, a) => a.indexOf(v) === i);
       if (cts.length > 1) return toast('Danh sách đang lọc có nhiều công trình — lọc theo 1 công trình rồi xuất.', 'warn');
       if (rows.length > 300) return toast('Tối đa 300 hạng mục mỗi lần xuất — lọc bớt theo ngày / hạng mục nghiệm thu.', 'warn');
+      const LOAI = [['bia', 'Bìa'], ['danhmuc', 'Danh mục'], ['ycnt', 'Phiếu yêu cầu nghiệm thu'], ['nt', 'Biên bản nghiệm thu công việc'], ['plcaodo', 'Phiếu kiểm tra Cao độ, KTHH (nếu đã nhập Dòng đo)']];
       const m = modal({ title: 'Xuất hồ sơ chất lượng', body:
-        '<p class="small">Xuất ' + rows.length + ' hạng mục đang lọc thành 1 file Excel: Bìa, Danh mục, Phiếu yêu cầu nghiệm thu + Biên bản nghiệm thu cho từng hạng mục (kèm phụ lục Cao độ, kích thước hình học nếu đã nhập Dòng đo). Số phiếu/số liệu trong file dùng công thức liên kết tới sheet DATA — sửa DATA rồi tính lại (F9) sẽ tự cập nhật.</p>' +
-        '<div class="fg"><div class="c12"><label class="lbl">Tên đợt (tuỳ chọn, hiện trên bìa)</label><input class="inp" id="hscl-ten" placeholder="Đợt 1 — Tháng 3/2026"></div></div>',
+        '<p class="small">Xuất ' + rows.length + ' hạng mục đang lọc thành 1 file Excel. Số phiếu/số liệu dùng công thức liên kết tới sheet DATA — sửa DATA rồi tính lại (F9) là mọi sheet tự cập nhật.</p>' +
+        '<div class="fg"><div class="c12"><label class="lbl">Tên đợt (tuỳ chọn, hiện trên bìa)</label><input class="inp" id="hscl-ten" placeholder="Đợt 1 — Tháng 3/2026"></div></div>' +
+        '<label class="lbl mt-2">Loại biên bản cần có (áp dụng cho mọi hạng mục đang xuất)</label>' +
+        '<div class="fg">' + LOAI.map(l => '<div class="c6"><label class="row small" style="gap:6px"><input type="checkbox" class="hscl-loai" value="' + l[0] + '" checked>' + esc(l[1]) + '</label></div>').join('') + '</div>',
         buttons: [{ text: 'Huỷ' }, { text: 'Xuất Excel', icon: 'bi-file-earmark-excel', cls: 'primary', fn: (mm, b) => {
-          withBusy(b, () => api('apiXuatHoSoChatLuongXlsx', cts[0], rows.map(r => r.MaHM), $('#hscl-ten', mm.el).value)).then(r => {
+          const loai = {}; LOAI.forEach(l => { loai[l[0]] = false; }); $$('.hscl-loai:checked', mm.el).forEach(c => { loai[c.value] = true; });
+          if (!Object.values(loai).some(Boolean)) return toast('Tích ít nhất 1 loại biên bản cần xuất.', 'warn');
+          withBusy(b, () => api('apiXuatHoSoChatLuongXlsx', cts[0], rows.map(r => r.MaHM), $('#hscl-ten', mm.el).value, loai)).then(r => {
             downloadBinary(r.filename, r.base64, r.mime); mm.close(); toast('Đã tạo hồ sơ chất lượng cho ' + r.soHangMuc + ' hạng mục.', 'success');
           }).catch(fail);
         } }] });
