@@ -461,7 +461,7 @@ svg.vz text { pointer-events: none; }
 
 </script>
 <script>
-const FE_BUILD_ = '1.0.34'; // cùng bản BACKEND_BUILD — Code.gs kiểm tra khi nhúng JS (jsBuildGuard_)
+const FE_BUILD_ = '1.0.35'; // cùng bản BACKEND_BUILD — Code.gs kiểm tra khi nhúng JS (jsBuildGuard_)
 /* ===== 00_core: trạng thái, tiện ích, gọi API, modal / toast ===== */
 'use strict';
 var S = { token: null, user: null, cfg: {}, perms: {}, menu: [], lists: {}, settings: {}, roleLabels: {}, appName: 'KM0', build: '', unread: 0,
@@ -5581,6 +5581,41 @@ PAGES.dashboard = { title: 'Dashboard', render: function (ctx, params) {
     }).catch(e => { body.style.opacity = ''; pageError(ctx, e); });
   } }));
 } };
+
+/* ====================== HỒ SƠ CHẤT LƯỢNG (round #38) ======================
+ * MODULES.hmnt: toolbar "Xuất hồ sơ chất lượng" (các hạng mục đang lọc trong danh sách -> 1 file Excel,
+ * theo đúng cách "Xuất Word các BB đang lọc" của bbnt), action theo dòng "Tạo biên bản nghiệm thu" (sinh 1
+ * bản ghi bbnt đã điền sẵn từ Nhóm ký — mở module Biên bản nghiệm thu để sửa/ký/xuất Word như bình thường).
+ * MODULES.plcd: action "Xem dòng đo" -> điều hướng sang e:plcdd đã lọc theo phụ lục (giống pattern nkct->nktc). */
+MODULES.hmnt = {
+  toolbar: ctx => [
+    { text: 'Xuất hồ sơ chất lượng', icon: 'bi-file-earmark-excel', show: can('hmnt', 'view'), fn: () => {
+      const rows = filteredRows(ctx); if (!rows.length) return toast('Không có hạng mục nào trong danh sách đang lọc.', 'warn');
+      const cts = rows.map(r => r.MaCT).filter((v, i, a) => a.indexOf(v) === i);
+      if (cts.length > 1) return toast('Danh sách đang lọc có nhiều công trình — lọc theo 1 công trình rồi xuất.', 'warn');
+      if (rows.length > 300) return toast('Tối đa 300 hạng mục mỗi lần xuất — lọc bớt theo ngày / hạng mục nghiệm thu.', 'warn');
+      const m = modal({ title: 'Xuất hồ sơ chất lượng', body:
+        '<p class="small">Xuất ' + rows.length + ' hạng mục đang lọc thành 1 file Excel: Bìa, Danh mục, Phiếu yêu cầu nghiệm thu + Biên bản nghiệm thu cho từng hạng mục (kèm phụ lục Cao độ, kích thước hình học nếu đã nhập Dòng đo). Số phiếu/số liệu trong file dùng công thức liên kết tới sheet DATA — sửa DATA rồi tính lại (F9) sẽ tự cập nhật.</p>' +
+        '<div class="fg"><div class="c12"><label class="lbl">Tên đợt (tuỳ chọn, hiện trên bìa)</label><input class="inp" id="hscl-ten" placeholder="Đợt 1 — Tháng 3/2026"></div></div>',
+        buttons: [{ text: 'Huỷ' }, { text: 'Xuất Excel', icon: 'bi-file-earmark-excel', cls: 'primary', fn: (mm, b) => {
+          withBusy(b, () => api('apiXuatHoSoChatLuongXlsx', cts[0], rows.map(r => r.MaHM), $('#hscl-ten', mm.el).value)).then(r => {
+            downloadBinary(r.filename, r.base64, r.mime); mm.close(); toast('Đã tạo hồ sơ chất lượng cho ' + r.soHangMuc + ' hạng mục.', 'success');
+          }).catch(fail);
+        } }] });
+      return m;
+    } }],
+  actions: (r, ctx) => [
+    { text: 'Tạo biên bản nghiệm thu', icon: 'bi-patch-check', show: !r.MaBB && (can('bbnt', 'manage') || can('bbnt', 'create')), fn: (row, c) => {
+      api('apiTaoBienBanTuHangMuc', row.MaHM).then(res => { toast('Đã tạo biên bản ' + res.soBB + ' — mở module "Biên bản nghiệm thu" để kiểm tra / sửa / xuất Word.', 'success'); c.reload(); }).catch(fail);
+    } },
+    { text: 'Mở biên bản nghiệm thu', icon: 'bi-box-arrow-up-right', show: !!r.MaBB, fn: row => navigate('e:bbnt', { pre: { field: 'MaBB', values: [row.MaBB], label: 'Biên bản ' + row.MaBB } }) }
+  ]
+};
+MODULES.plcd = {
+  actions: (r, ctx) => [
+    { text: 'Xem dòng đo', icon: 'bi-list-ol', fn: row => navigate('e:plcdd', { pre: { field: 'MaPLCD', values: [row.MaPLCD], label: 'Dòng đo của phụ lục ' + row.MaPLCD } }) }
+  ]
+};
 
 /* ===== 70_portal: cổng chủ đầu tư / giám sát (chỉ xem) ===== */
 function renderPortal(p) {
