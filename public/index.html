@@ -58,6 +58,7 @@ label.lbl { display: block; font-size: 12.5px; font-weight: 600; color: var(--in
 label.lbl .req { color: var(--bad); }
 .hint { font-size: 12px; color: var(--muted); margin-top: 3px; }
 .fg { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px 14px; } .fg > .c6 { grid-column: span 6; } .fg > .c12 { grid-column: span 12; } .fg > .c4 { grid-column: span 4; } .fg > .c3 { grid-column: span 3; }
+.fg > .c2 { grid-column: span 2; } .fg > .c8 { grid-column: span 8; } .fg > .c9 { grid-column: span 9; }
 .chk-box { border: 1px solid #D1D5DB; border-radius: 8px; padding: 8px 10px; max-height: 160px; overflow: auto; background: #fff; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 12px; }
 .chk-box label { display: flex; gap: 7px; align-items: center; font-size: 13.5px; cursor: pointer; }
 .file-w { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .file-w .thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
@@ -212,7 +213,7 @@ table.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size
   .side { transform: translateX(-100%); box-shadow: var(--shadow-lg); } body.nav-open .side { transform: none; } .main { margin-left: 0; }
   body.nav-open .overlay-side { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 35; }
   #burger { display: inline-flex; } .content { padding: 14px 12px 60px; } .top { padding: 0 12px; }
-  .g2, .g3, .g4 { grid-template-columns: minmax(0, 1fr); } .fg > .c6, .fg > .c4, .fg > .c3 { grid-column: span 12; } .dl { grid-template-columns: 1fr; }
+  .g2, .g3, .g4 { grid-template-columns: minmax(0, 1fr); } .fg > .c6, .fg > .c4, .fg > .c3, .fg > .c2, .fg > .c8, .fg > .c9 { grid-column: span 12; } .dl { grid-template-columns: 1fr; }
   .modal-b { padding: 14px; } .mback { padding: 0; } .modal { border-radius: 0; min-height: 100vh; margin-bottom: 0; max-width: none !important; } .modal-f { border-radius: 0; position: sticky; bottom: 0; }
   .paper { padding: 16px; } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kpi .k-v { font-size: 18px; } .toolbar .search { max-width: none; flex-basis: 100%; }
 }
@@ -467,7 +468,7 @@ svg.vz text { pointer-events: none; }
 
 </script>
 <script>
-const FE_BUILD_ = '1.0.40'; // cùng bản BACKEND_BUILD — Code.gs kiểm tra khi nhúng JS (jsBuildGuard_)
+const FE_BUILD_ = '1.0.41'; // cùng bản BACKEND_BUILD — Code.gs kiểm tra khi nhúng JS (jsBuildGuard_)
 /* ===== 00_core: trạng thái, tiện ích, gọi API, modal / toast ===== */
 'use strict';
 var S = { token: null, user: null, cfg: {}, perms: {}, menu: [], lists: {}, settings: {}, roleLabels: {}, appName: 'KM0', build: '', unread: 0,
@@ -664,7 +665,9 @@ function tachNhan_(label) {
   const s = String(label || ''); if (NHAN_MEMO_[s]) return NHAN_MEMO_[s];
   const ghi = []; let c = s;
   { let d = 0, cut = -1; for (let i = 0; i < c.length; i++) { const ch = c[i]; if (ch === '(') d++; else if (ch === ')') d--; else if (d === 0 && (ch === '—' || ch === '–') && c[i - 1] === ' ' && c[i + 1] === ' ') { cut = i; break; } }
-    if (cut > 0) { ghi.push(c.slice(cut + 1).trim()); c = c.slice(0, cut); } }                     // … — giải thích (chỉ khi dấu gạch nằm ngoài ngoặc)
+    if (cut > 0) { const truoc = c.slice(0, cut).trim(), sau = c.slice(cut + 1).trim();
+      // "Báo cáo — Gói thầu", "Báo cáo tuần — Logo…": phần trước chỉ là nhóm chung -> lấy phần sau làm nhãn, nhóm thành chú thích
+      if (/^(Báo cáo( ngày| tuần)?|Hồ sơ|Thông tin|Cấu hình)$/i.test(truoc) && sau) { ghi.push(truoc); c = sau; } else { ghi.push(sau); c = c.slice(0, cut); } } }                     // … — giải thích (chỉ khi dấu gạch nằm ngoài ngoặc)
   c = c.replace(/\s*\(([^()]*)\)/g, (m, g) => { g = g.trim(); if (/^\S{1,5}$/.test(g)) return ' (' + g + ')'; ghi.push(g); return ''; }); // (…) — giữ đơn vị ngắn: (%), (đ), (ca), (m3)
   c = c.replace(/;\s*(.+)$/, (m, g) => { ghi.push(g.trim()); return ''; });                        // …; giải thích
   c = c.replace(/\s*[:,]\s*$/, '').replace(/\s+/g, ' ').trim() || s;
@@ -3019,7 +3022,7 @@ function bindCvRow_(el, formBox, deletedIds, onAdd) {
     clearBoq();
     const q = norm(noidung.value.trim()), ct = ctVal();
     if (q.length < 2) { ac.classList.add('hide'); ac.innerHTML = ''; return; }
-    const rows = (S.lk.bcv || []).filter(b => (!ct || b.MaCT === ct) && norm(b.TenCV + ' ' + (b.NhomCV || '') + ' ' + (b.HangMuc || '') + ' ' + (b.MaHieu || '')).indexOf(q) >= 0).slice(0, 15);
+    const rows = (S.lk.bcv || []).filter(b => (!ct || b.MaCT === ct) && (s2 => q.split(/\s+/).every(w => s2.indexOf(w) >= 0))(norm(b.TenCV + ' ' + (b.NhomCV || '') + ' ' + (b.HangMuc || '') + ' ' + (b.MaHieu || '')))).slice(0, 15); // nhiều từ khoá: phải có đủ các từ, không cần liền nhau
     if (!rows.length) { ac.innerHTML = '<div class="ac-item muted">Không khớp công việc BOQ nào — sẽ lưu như nội dung tự do (không tính khối lượng).</div>'; ac.classList.remove('hide'); return; }
     ac.innerHTML = rows.map((b, i) => '<div class="ac-item" data-i="' + i + '"><b>' + esc(b.TenCV) + '</b> <span class="muted small">' + esc(b.DonVi || '') + (b.NhomCV ? ' · ' + esc(b.NhomCV) : '') + (b.HangMuc ? ' · ' + esc(b.HangMuc) : '') + '</span></div>').join('');
     ac.classList.remove('hide');
@@ -3398,7 +3401,7 @@ PAGES.nhapboq = { title: 'Nhập BOQ từ file dự thầu / phụ lục HĐ', r
           if (o && st.sheets && st.sheets.length > 1 && (can('dmtk', 'manage') || can('bcv', 'manage'))) {
             o.innerHTML = '<i class="bi bi-hourglass-split"></i> Đang tìm sheet phân tích đơn giá / vật tư trong file…';
             docPTDG_(maCT, st.sheets, st.file ? st.file.name : '', a.sheet).then(k => { if (!k) { o.innerHTML = ''; return; }
-              o.innerHTML = k.thanhPhan ? '<div class="banner"><i class="bi bi-journal-check"></i><div>Đã đọc định mức hao phí từ ' + k.sheets.map(x => '"' + esc(x.ten) + '"').join(', ') + ': <b>' + k.thanhPhan + '</b> thành phần vật tư / ca máy (' + k.them + ' mới, ' + k.capNhat + ' cập nhật) → dùng khi phân tích vật tư – máy.</div></div>' : '<span class="muted">Không đọc được định mức từ sheet phân tích trong file — hệ thống dùng thư viện định mức (tham khảo).</span>';
+              o.innerHTML = k.thanhPhan ? '<div class="banner"><i class="bi bi-journal-check"></i><div>Đã đọc định mức hao phí từ ' + k.sheets.map(x => '"' + esc(x.ten) + '"').join(', ') + ': <b>' + k.thanhPhan + '</b> thành phần vật tư / ca máy (' + k.them + ' mới, ' + k.capNhat + ' cập nhật) → dùng khi phân tích vật tư – máy.</div></div>' : '';
             }).catch(e => { o.innerHTML = '<span class="tx-warn">Không đọc được sheet phân tích đơn giá: ' + esc(e.message) + '</span>'; });
           }
           // round #43: sheet phân tích vật tư (PTVT) / THVL-THNC-THM -> hao phí từng công việc cho Tiến độ dự thầu (nhân lực, máy, vật liệu theo tháng)
@@ -6094,21 +6097,20 @@ PAGES.tddt = { title: 'Tiến độ dự thầu', render: function (ctx, params)
       const lane = inner => '<div class="gt-lane" style="width:' + W + 'px">' + inner + '</div>';
       let rows = '';
       d.sections.forEach(s => {
-        rows += '<tr class="gt-hm"><td class="nowrap"><b>' + esc(s.ma) + '</b></td><td colspan="' + (sua ? 4 : 3) + '"><b>' + esc(s.ten) + '</b></td><td class="num small">' + soNgay(s.bd, s.kt) + '</td><td class="nowrap small">' + fmtDate(s.bd) + '</td><td class="nowrap small">' + fmtDate(s.kt) + '</td><td></td><td>' + lane(bar(s.bd, s.kt, 'hm', s.ten, '#7F6000')) + '</td>' + (them ? '<td></td>' : '') + '</tr>';
+        rows += '<tr class="gt-hm"><td class="nowrap"><b>' + esc(s.ma) + '</b></td><td colspan="3"><b>' + esc(s.ten) + '</b></td><td class="num small">' + soNgay(s.bd, s.kt) + '</td><td class="nowrap small">' + fmtDate(s.bd) + '</td><td class="nowrap small">' + fmtDate(s.kt) + '</td><td></td>' + (them ? '<td></td>' : '') + '<td>' + lane(bar(s.bd, s.kt, 'hm', s.ten, '#7F6000')) + '</td></tr>';
         s.ds.forEach(x => {
           const conTxt = x.soCon ? '<a href="#" data-con="' + esc(x.MaNhom) + '" title="Xem / chọn việc con">' + x.soCon + ' việc</a>' + (x.soChot ? '<div class="xs muted">' + x.soChot + ' chốt ngày</div>' : '') + (x.soLech ? '<div class="xs tx-warn" title="Việc con đã chốt ngày nằm ngoài kế hoạch công việc cha">' + x.soLech + ' lệch</div>' : '')
             : '<span class="badge" title="Đầu việc ngoài BOQ — dùng số ngày / ngày bắt đầu riêng">ngoài BOQ</span>' + (x.ncpt ? '<div class="xs muted">' + x.ncpt + ' người/ngày</div>' : '');
           const tip = x.ten + '\n' + fmtDate(x.bd) + ' → ' + fmtDate(x.kt) + (x.soCon && (x.bd !== x.plan.bd || x.kt !== x.plan.kt) ? '\nKế hoạch nhóm: ' + fmtDate(x.plan.bd) + ' → ' + fmtDate(x.plan.kt) : '') + (x.note ? '\n' + x.note : '');
           rows += '<tr data-n="' + esc(x.MaNhom) + '"><td class="num small">' + x.stt + '</td><td style="min-width:240px">' + esc(x.ten) + (x.note ? '<div class="xs muted" title="' + esc(x.noteTay ? 'Ghi chú tự nhập' : 'Tự tính từ hao phí nhân công, ca máy') + '"><i class="bi bi-people"></i> ' + esc(x.note) + '</div>' : '') + (x.tienDe && x.tienDe.length ? '<div class="xs muted"><i class="bi bi-arrow-return-right"></i> sau: ' + esc(tdTxt(x)) + '</div>' : x.batDauCoDinh ? '<div class="xs muted">bắt đầu cố định ' + fmtDate(x.batDauCoDinh) + '</div>' : '') + '</td>' +
-            '<td class="small">' + esc(x.dv || '') + '</td><td class="num small">' + (x.kl === '' || x.kl === null ? '' : fmtNum(x.kl, 3)) + '</td>' + (sua ? '<td class="nowrap">' + '<button class="btn sm icon ghost" data-len title="Lên" aria-label="Lên"><i class="bi bi-arrow-up"></i></button><button class="btn sm icon ghost" data-xuong title="Xuống" aria-label="Xuống"><i class="bi bi-arrow-down"></i></button></td>' : '') +
+            '<td class="small">' + esc(x.dv || '') + '</td><td class="num small">' + (x.kl === '' || x.kl === null ? '' : fmtNum(x.kl, 3)) + '</td>' +
             '<td class="num small" title="Số ngày kế hoạch (nhập)">' + x.ngay + (x.soCon && x.ngay !== x.soNgay ? '<div class="xs muted">KH ' + x.soNgay + '</div>' : '') + '</td><td class="nowrap small">' + fmtDate(x.bd) + '</td><td class="nowrap small">' + fmtDate(x.kt) + '</td><td class="small">' + conTxt + '</td>' +
-            '<td>' + lane(bar(x.bd, x.kt, x.soCon ? 'cv' : 'grp', tip, x.soCon ? '#2F5597' : '#8EA9DB')) + '</td>' +
-            (them ? '<td class="nowrap"><button class="btn sm icon ghost" data-sua title="Sửa công việc cha (tên, ĐV, KL, số ngày, việc trước)" aria-label="Sửa"><i class="bi bi-pencil"></i></button>' + (sua ? '<button class="btn sm icon ghost" data-chon title="Chọn việc con trong BOQ" aria-label="Chọn việc con"><i class="bi bi-list-check"></i></button><button class="btn sm icon ghost" data-xoa title="Xoá công việc cha (việc con trở về chưa gộp)" aria-label="Xoá"><i class="bi bi-trash"></i></button>' : '') + '</td>' : '') + '</tr>';
+            (them ? '<td class="nowrap"><button class="btn sm icon ghost" data-sua title="Sửa công việc cha (tên, ĐV, KL, số ngày, việc trước)" aria-label="Sửa"><i class="bi bi-pencil"></i></button>' + (sua ? '<button class="btn sm icon ghost" data-chon title="Chọn việc con trong BOQ" aria-label="Chọn việc con"><i class="bi bi-list-check"></i></button><button class="btn sm icon ghost" data-xoa title="Xoá công việc cha (việc con trở về chưa gộp)" aria-label="Xoá"><i class="bi bi-trash"></i></button>' : '') + (sua ? '<button class="btn sm icon ghost" data-len title="Lên" aria-label="Lên"><i class="bi bi-arrow-up"></i></button><button class="btn sm icon ghost" data-xuong title="Xuống" aria-label="Xuống"><i class="bi bi-arrow-down"></i></button>' : '') + '</td>' : '') + '<td>' + lane(bar(x.bd, x.kt, x.soCon ? 'cv' : 'grp', tip, x.soCon ? '#2F5597' : '#8EA9DB')) + '</td>' + '</tr>';
         });
       });
       h += '<div class="card mt-2"><div class="card-h row wrap" style="gap:10px"><span>Bảng tiến độ — công việc cha</span><span class="xs muted"><span class="gt-lg" style="background:#2F5597"></span>gộp từ BOQ <span class="gt-lg" style="background:#8EA9DB"></span>đầu việc ngoài BOQ <span class="gt-lg" style="background:#7F6000"></span>phân đoạn</span><span class="grow"></span>' +
         (tk.chuaGop ? '<button class="btn sm" id="tp-chua"><i class="bi bi-exclamation-circle"></i>' + tk.chuaGop + ' việc BOQ chưa gộp</button>' : '') + '</div>' +
-        '<div class="card-b flush"><div class="tbl-wrap gt-wrap" style="max-height:70vh"><table class="tbl gt"><thead><tr><th>STT</th><th>Công việc</th><th>ĐV</th><th class="num">Khối lượng</th>' + (sua ? '<th></th>' : '') + '<th class="num">Số ngày</th><th>Bắt đầu</th><th>Kết thúc</th><th>Việc con</th><th><div class="gt-scale" style="width:' + W + 'px">' + ticks + '</div></th>' + (them ? '<th></th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
+        '<div class="card-b flush"><div class="tbl-wrap gt-wrap" style="max-height:70vh"><table class="tbl gt"><thead><tr><th>STT</th><th>Công việc</th><th>ĐV</th><th class="num">Khối lượng</th><th class="num">Số ngày</th><th>Bắt đầu</th><th>Kết thúc</th><th>Việc con</th>' + (them ? '<th>Thao tác</th>' : '') + '<th><div class="gt-scale" style="width:' + W + 'px">' + ticks + '</div></th></tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
       h += nguonLucHTML(d);
       body.innerHTML = h; ganKpi(body); ganBang(body); ganNL(body);
     }
