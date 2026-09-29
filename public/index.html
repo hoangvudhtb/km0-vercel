@@ -421,6 +421,12 @@ svg.vz text { pointer-events: none; }
 }
 .cell-1 { display: inline-block; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; } .mc-kv .cell-1 { max-width: 100%; }
 
+/* round #43: Tiến độ dự thầu — biểu đồ cột nhân lực / máy theo tháng */
+.tp-chart { display: flex; align-items: flex-end; gap: 6px; height: 170px; padding: 8px 4px 0; margin-bottom: 12px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tp-col { flex: 1 0 34px; max-width: 64px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 2px; }
+.tp-col > i { display: block; width: 70%; min-height: 1px; border-radius: 3px 3px 0 0; }
+.tp-col > .xs { line-height: 1.2; }
+
 </style>
 
 </head>
@@ -461,7 +467,7 @@ svg.vz text { pointer-events: none; }
 
 </script>
 <script>
-const FE_BUILD_ = '1.0.37'; // cùng bản BACKEND_BUILD — Code.gs kiểm tra khi nhúng JS (jsBuildGuard_)
+const FE_BUILD_ = '1.0.40'; // cùng bản BACKEND_BUILD — Code.gs kiểm tra khi nhúng JS (jsBuildGuard_)
 /* ===== 00_core: trạng thái, tiện ích, gọi API, modal / toast ===== */
 'use strict';
 var S = { token: null, user: null, cfg: {}, perms: {}, menu: [], lists: {}, settings: {}, roleLabels: {}, appName: 'KM0', build: '', unread: 0,
@@ -3214,18 +3220,18 @@ PAGES.kehoachtuan = { title: 'Kế hoạch thi công tuần tới', render: func
 
 /* ---------- Đọc file Excel ngay trên trình duyệt ---------- */
 /** .xlsx: tự giải nén (DecompressionStream) + đọc XML — không cần mạng. .xls (Excel 97-2003) / trình duyệt cũ: nạp SheetJS từ cdnjs. */
-function docFileExcel_(file, maxCol) {
-  maxCol = maxCol || 40;
+function docFileExcel_(file, maxCol, maxRow) {
+  maxCol = maxCol || 40; maxRow = maxRow || 6000;
   const ten = String(file.name || '').toLowerCase();
   return file.arrayBuffer().then(buf => {
     const u8 = new Uint8Array(buf);
     if (/\.(csv|txt)$/.test(ten)) return [{ name: file.name.replace(/\.[^.]+$/, ''), rows: parseTable(new TextDecoder('utf-8').decode(u8)) }];
-    if (u8[0] === 0x50 && u8[1] === 0x4B && typeof DecompressionStream !== 'undefined') return docXlsx_(buf, maxCol).catch(() => docBangSheetJS_(u8, maxCol));
-    return docBangSheetJS_(u8, maxCol);
+    if (u8[0] === 0x50 && u8[1] === 0x4B && typeof DecompressionStream !== 'undefined') return docXlsx_(buf, maxCol, maxRow).catch(() => docBangSheetJS_(u8, maxCol, maxRow));
+    return docBangSheetJS_(u8, maxCol, maxRow);
   });
 }
-function docXlsx_(buf, maxCol) {
-  maxCol = maxCol || 40;
+function docXlsx_(buf, maxCol, maxRow) {
+  maxCol = maxCol || 40; maxRow = maxRow || 6000;
   const u8 = new Uint8Array(buf), dv = new DataView(buf), td = new TextDecoder('utf-8');
   let e = -1; for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
   if (e < 0) return Promise.reject(new Error('File không đúng định dạng .xlsx.'));
@@ -3256,8 +3262,8 @@ function docXlsx_(buf, maxCol) {
     });
     return Promise.all(sheets.map(s => doc(s.path).then(d => {
       const rows = [], fcells = []; // round #35: ô có công thức (để tải lên lại phân biệt ô gõ tay với ô tự tính)
-      tags(d, 'row').slice(0, 6000).forEach(rw => {
-        const ri = Number(rw.getAttribute('r')) - 1; if (!(ri >= 0) || ri >= 6000) return;
+      tags(d, 'row').slice(0, maxRow).forEach(rw => {
+        const ri = Number(rw.getAttribute('r')) - 1; if (!(ri >= 0) || ri >= maxRow) return;
         const row = rows[ri] = [];
         tags(rw, 'c').forEach(c => {
           const ref = c.getAttribute('r') || '', m = ref.match(/^([A-Z]+)/); if (!m) return;
@@ -3287,11 +3293,11 @@ function taiSheetJS_() {
     document.head.appendChild(s);
   });
 }
-function docBangSheetJS_(u8, maxCol) {
-  maxCol = maxCol || 40;
+function docBangSheetJS_(u8, maxCol, maxRow) {
+  maxCol = maxCol || 40; maxRow = maxRow || 6000;
   return taiSheetJS_().then(X => {
     const wb = X.read(u8, { type: 'array' });
-    return wb.SheetNames.map(n => ({ name: n, rows: X.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' }).slice(0, 6000).map(r => r.slice(0, maxCol)) }));
+    return wb.SheetNames.map(n => ({ name: n, rows: X.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' }).slice(0, maxRow).map(r => r.slice(0, maxCol)) }));
   });
 }
 
@@ -3332,7 +3338,7 @@ PAGES.nhapboq = { title: 'Nhập BOQ từ file dự thầu / phụ lục HĐ', r
       const f = e.target.files && e.target.files[0]; if (!f) return;
       st.file = f; st.opt = { types: {} }; st.a = null; $('#nb-ten', ctx.el).textContent = f.name;
       const body = $('.page-body', ctx.el); body.innerHTML = skeleton(6);
-      docFileExcel_(f).then(sheets => { st.sheets = sheets.filter(s => s.rows && s.rows.length); if (!st.sheets.length) throw new Error('File không có dữ liệu.'); phanTich(); })
+      docFileExcel_(f, 40, 40000).then(sheets => { st.sheets = sheets.filter(s => s.rows && s.rows.length); if (!st.sheets.length) throw new Error('File không có dữ liệu.'); phanTich(); })
         .catch(err => { st.sheets = null; body.innerHTML = emptyState(err.message, 'bi-exclamation-octagon'); });
       e.target.value = '';
     });
@@ -3394,6 +3400,13 @@ PAGES.nhapboq = { title: 'Nhập BOQ từ file dự thầu / phụ lục HĐ', r
             docPTDG_(maCT, st.sheets, st.file ? st.file.name : '', a.sheet).then(k => { if (!k) { o.innerHTML = ''; return; }
               o.innerHTML = k.thanhPhan ? '<div class="banner"><i class="bi bi-journal-check"></i><div>Đã đọc định mức hao phí từ ' + k.sheets.map(x => '"' + esc(x.ten) + '"').join(', ') + ': <b>' + k.thanhPhan + '</b> thành phần vật tư / ca máy (' + k.them + ' mới, ' + k.capNhat + ' cập nhật) → dùng khi phân tích vật tư – máy.</div></div>' : '<span class="muted">Không đọc được định mức từ sheet phân tích trong file — hệ thống dùng thư viện định mức (tham khảo).</span>';
             }).catch(e => { o.innerHTML = '<span class="tx-warn">Không đọc được sheet phân tích đơn giá: ' + esc(e.message) + '</span>'; });
+          }
+          // round #43: sheet phân tích vật tư (PTVT) / THVL-THNC-THM -> hao phí từng công việc cho Tiến độ dự thầu (nhân lực, máy, vật liệu theo tháng)
+          const o2 = document.createElement('div'); o2.className = 'small mt-1'; if (o) o.after(o2);
+          if (st.sheets && st.sheets.length > 1 && can('tdn', 'manage') && typeof docHaoPhiDT_ === 'function') {
+            o2.innerHTML = '<i class="bi bi-hourglass-split"></i> Đang đọc hao phí vật liệu – nhân công – máy (sheet phân tích vật tư)…';
+            docHaoPhiDT_(maCT, st.sheets, st.file ? st.file.name : '', a.sheet).then(k => { o2.innerHTML = k && k.ghep ? '<div class="banner"><i class="bi bi-calendar3-range"></i><div>Đã gắn hao phí cho <b>' + k.ghep + '</b> / ' + k.boq + ' công việc BOQ (' + fmtNum(k.thanhPhan || 0) + ' thành phần) → dùng cho <b>Tiến độ dự thầu</b> (biểu đồ nhân lực, máy, kế hoạch vật liệu). <button class="btn sm" data-tddt><i class="bi bi-calendar3-range"></i>Mở Tiến độ dự thầu</button></div></div>' : ''; const b = $('[data-tddt]', o2); if (b) b.addEventListener('click', () => { m.close(); navigate('p:tddt', { maCT: maCT }); }); })
+              .catch(e => { o2.innerHTML = '<span class="tx-warn">Không đọc được hao phí: ' + esc(e.message) + '</span>'; });
           }
           return m;
         }).catch(fail);
@@ -5594,19 +5607,22 @@ MODULES.hmnt = {
       const cts = rows.map(r => r.MaCT).filter((v, i, a) => a.indexOf(v) === i);
       if (cts.length > 1) return toast('Danh sách đang lọc có nhiều công trình — lọc theo 1 công trình rồi xuất.', 'warn');
       if (rows.length > 300) return toast('Tối đa 300 hạng mục mỗi lần xuất — lọc bớt theo ngày / hạng mục nghiệm thu.', 'warn');
-      const LOAI = [['bia', 'Bìa'], ['danhmuc', 'Danh mục'], ['ycnt', 'Phiếu yêu cầu nghiệm thu'], ['nt', 'Biên bản nghiệm thu công việc'], ['plcaodo', 'Phiếu kiểm tra Cao độ, KTHH (nếu đã nhập Dòng đo)']];
+      const LOAI = [['bia', 'Bìa'], ['danhmuc', 'Danh mục'], ['ycnt', 'Phiếu yêu cầu nghiệm thu'], ['nt', 'Biên bản nghiệm thu công việc'], ['plcaodo', 'Phụ lục kèm theo (cao độ, bảng số liệu, checklist — theo Thư viện phụ lục)']];
       const m = modal({ title: 'Xuất hồ sơ chất lượng', body:
         '<p class="small">Xuất ' + rows.length + ' hạng mục đang lọc thành 1 file Excel. Số phiếu/số liệu dùng công thức liên kết tới sheet DATA — sửa DATA rồi tính lại (F9) là mọi sheet tự cập nhật.</p>' +
         '<div class="fg"><div class="c12"><label class="lbl">Tên đợt (tuỳ chọn, hiện trên bìa)</label><input class="inp" id="hscl-ten" placeholder="Đợt 1 — Tháng 3/2026"></div></div>' +
+        '<label class="lbl mt-2">Cách xuất</label><div class="fg"><div class="c6"><label class="row small" style="gap:6px"><input type="radio" name="hscl-cach" value="1" checked>1 file cho cả đợt</label></div>' +
+        '<div class="c6"><label class="row small" style="gap:6px"><input type="radio" name="hscl-cach" value="n">Mỗi hạng mục 1 file (nén .zip)</label></div></div>' +
         '<label class="lbl mt-2">Loại biên bản cần có (áp dụng cho mọi hạng mục đang xuất)</label>' +
         '<div class="fg">' + LOAI.map(l => '<div class="c6"><label class="row small" style="gap:6px"><input type="checkbox" class="hscl-loai" value="' + l[0] + '" checked>' + esc(l[1]) + '</label></div>').join('') + '</div>',
         buttons: [{ text: 'Huỷ' }, { text: 'Xuất Excel', icon: 'bi-file-earmark-excel', cls: 'primary', fn: (mm, b) => {
           const loai = {}; LOAI.forEach(l => { loai[l[0]] = false; }); $$('.hscl-loai:checked', mm.el).forEach(c => { loai[c.value] = true; });
           if (!Object.values(loai).some(Boolean)) return toast('Tích ít nhất 1 loại biên bản cần xuất.', 'warn');
+          if (($('input[name=hscl-cach]:checked', mm.el) || {}).value === 'n') return withBusy(b, () => xuatTungHangMuc_(cts[0], rows, $('#hscl-ten', mm.el).value, loai)).then(() => mm.close()).catch(fail);
           withBusy(b, () => api('apiXuatHoSoChatLuongXlsx', cts[0], rows.map(r => r.MaHM), $('#hscl-ten', mm.el).value, loai)).then(r => {
             downloadBinary(r.filename, r.base64, r.mime); mm.close();
-            toast('Đã tạo hồ sơ chất lượng cho ' + r.soHangMuc + ' hạng mục' + (r.theoMau ? ' theo file mẫu "' + r.theoMau + '"' : ' (mẫu mặc định — tải "File mẫu hồ sơ" ở Danh mục hạng mục nghiệm thu để xuất đúng mẫu công trình)') + '.', 'success');
-            (r.canhBao || []).slice(0, 4).forEach(w => toast(w, 'warn'));
+            toast('Đã tạo hồ sơ chất lượng cho ' + r.soHangMuc + ' hạng mục' + (r.theoMau ? ' theo ' + (/^khung/.test(r.theoMau) ? r.theoMau : 'file mẫu "' + r.theoMau + '"') : ' (mẫu mặc định — tải "File khung hồ sơ" ở Công trình để xuất đúng mẫu công trình)') + '.', 'success');
+            if ((r.canhBao || []).length) modal({ title: 'Lưu ý khi kiểm tra hồ sơ vừa xuất', body: '<ul class="small" style="padding-left:18px">' + r.canhBao.slice(0, 40).map(w => '<li>' + esc(w) + '</li>').join('') + '</ul>' + (r.canhBao.length > 40 ? '<p class="small muted">… và ' + (r.canhBao.length - 40) + ' lưu ý khác</p>' : ''), buttons: [{ text: 'Đóng' }] });
           }).catch(fail);
         } }] });
       return m;
@@ -5615,7 +5631,9 @@ MODULES.hmnt = {
     { text: 'Tạo biên bản nghiệm thu', icon: 'bi-patch-check', show: !r.MaBB && (can('bbnt', 'manage') || can('bbnt', 'create')), fn: (row, c) => {
       api('apiTaoBienBanTuHangMuc', row.MaHM).then(res => { toast('Đã tạo biên bản ' + res.soBB + ' — mở module "Biên bản nghiệm thu" để kiểm tra / sửa / xuất Word.', 'success'); c.reload(); }).catch(fail);
     } },
-    { text: 'Mở biên bản nghiệm thu', icon: 'bi-box-arrow-up-right', show: !!r.MaBB, fn: row => navigate('e:bbnt', { pre: { field: 'MaBB', values: [row.MaBB], label: 'Biên bản ' + row.MaBB } }) }
+    { text: 'Mở biên bản nghiệm thu', icon: 'bi-box-arrow-up-right', show: !!r.MaBB, fn: row => navigate('e:bbnt', { pre: { field: 'MaBB', values: [row.MaBB], label: 'Biên bản ' + row.MaBB } }) },
+    { text: 'Số liệu phụ lục', icon: 'bi-table', show: !!r.PhuLucKemTheo && can('plsl', 'view'), fn: (row, c) => soLieuPhuLuc_(row, () => c.reload()) },
+    { text: 'Kết quả checklist', icon: 'bi-check2-square', show: /checklist/i.test(r.PhuLucKemTheo || '') && can('kqcl', 'view'), fn: (row, c) => ketQuaChecklist_(row) }
   ]
 };
 /* Round #39 — dán nguyên khối số liệu cọc copy từ bảng tính thiết kế (Excel) vào Dòng đo cao độ */
@@ -5807,6 +5825,475 @@ MODULES.hmnt.toolbar = (function (cu) {
     { text: 'Nạp cao độ từ file phân lớp', icon: 'bi-rulers', show: can('plcdd', 'manage') || can('plcdd', 'create'), fn: () => napPhanLop_(ctx) }
   ]);
 })(MODULES.hmnt.toolbar);
+
+
+/* ====================== Round #41 — THƯ VIỆN PHỤ LỤC: kiểm tra mẫu, số liệu bảng phụ lục ====================== */
+/** Báo cáo "Kiểm tra mẫu" (phụ lục thư viện / khung hồ sơ). */
+function baoCaoMau_(tieuDe, kq) {
+  const li = a => '<ul class="small" style="padding-left:18px;margin:4px 0">' + a.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>';
+  let h = '';
+  if (kq.thongBao) h += '<p>' + esc(kq.thongBao) + '</p>';
+  if (kq.loi) h += '<p style="color:var(--bad)"><b>' + esc(kq.loi) + '</b></p>';
+  if (kq.sheet) h += '<p class="small">Sheet dùng: <b>' + esc(kq.sheet) + '</b>' + (kq.trangIn ? ' — giấy ' + esc(kq.trangIn.kho) + ' ' + esc(kq.trangIn.huong) + ', tỷ lệ ' + esc(kq.trangIn.tyLe) + ', vùng in ' + esc(kq.trangIn.vung) : '') + '</p>';
+  if (kq.vaiTro) h += '<div class="tbl-wrap"><table class="tbl small"><thead><tr><th>Vai trò</th><th>Sheet</th><th>Trang in</th></tr></thead><tbody>' + kq.vaiTro.map(v => '<tr><td>' + esc(v.vai) + '</td><td>' + (v.sheet ? '<b>' + esc(v.sheet) + '</b>' : '—') + '</td><td>' + esc(v.ghiChu) + '</td></tr>').join('') + '</tbody></table></div>';
+  if (kq.cotData) h += '<p class="small mt-2"><b>Cột DATA nhận ra:</b> ' + esc(kq.cotData.join(' · ')) + '</p>';
+  if (kq.bang) h += '<p class="small mt-2"><b>Bảng số liệu:</b> ' + esc(kq.bang) + '</p>';
+  if (kq.cot) h += '<div class="tbl-wrap"><table class="tbl small"><thead><tr><th>#</th><th>Cột nhập (ô ghi)</th><th>Tiêu đề trong mẫu</th></tr></thead><tbody>' + kq.cot.map((c, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(c.o) + (c.in !== c.o ? ' (in ở cột ' + esc(c.in) + ')' : '') + '</td><td>' + esc(c.ten) + '</td></tr>').join('') + '</tbody></table></div><p class="small muted">Dán số liệu từ Excel theo đúng thứ tự cột này (hạng mục → "Số liệu phụ lục").</p>';
+  if (kq.token && kq.token.length) h += '<p class="small mt-2"><b>Ô tự điền theo hạng mục:</b></p>' + li(kq.token);
+  if (kq.dataMap && kq.dataMap.length) h += '<p class="small mt-2"><b>DATA riêng của file → dữ liệu hạng mục:</b></p>' + li(kq.dataMap);
+  if (kq.canhBao && kq.canhBao.length) h += '<p class="small mt-2" style="color:var(--warn)"><b>Cần xem lại:</b></p>' + li(kq.canhBao);
+  else if (!kq.thongBao && !kq.loi) h += '<p class="small mt-2" style="color:var(--ok)"><i class="bi bi-check-circle"></i> Mẫu dùng được.</p>';
+  if (kq.sheets && kq.sheets.length) h += '<details class="mt-2"><summary class="small muted">Các sheet đang hiện trong file (' + kq.sheets.length + ')</summary><p class="small">' + esc(kq.sheets.join(' · ')) + '</p></details>';
+  h += '<p class="small muted mt-2">Mẹo: trong file mẫu, gõ {{Lý trình}}, {{Ngày NT}}, {{Số phiếu NT}}, {{Công việc nghiệm thu}}, {{Vị trí}}, {{Ký hiệu}}, {{Lớp}}, {{TVGS1}}, {{DVTC1}}, {{Dự án}}… vào ô cần điền — khi xuất tự thay bằng dữ liệu từng hạng mục (lấy bằng công thức từ sheet DATA).</p>';
+  return modal({ title: tieuDe, size: 'lg', body: h, buttons: [{ text: 'Đóng' }] });
+}
+function kiemTraMau_(loai, id, tieuDe, c) {
+  toast('Đang đọc file mẫu…', 'info');
+  api('apiKiemTraMau', loai, id).then(kq => { baoCaoMau_(tieuDe + (kq.ten ? ' — ' + kq.ten : ''), kq); if (c && kq.cotNhap !== undefined) c.reload(); }).catch(fail);
+}
+MODULES.mpl = {
+  actions: (r, ctx) => [
+    { text: 'Kiểm tra mẫu', icon: 'bi-search', fn: (row, c) => kiemTraMau_('mpl', row.MaMPL, 'Kiểm tra mẫu phụ lục', c) },
+    { text: 'Xuất thử (so với mẫu gốc)', icon: 'bi-file-earmark-diff', show: !/đính kèm/i.test(r.Loai || ''), fn: row => xuatThuMau_(row) },
+    { text: 'Nội dung kiểm tra', icon: 'bi-list-check', show: /checklist/i.test(r.Loai || '') && can('mplnd', 'view'), fn: row => navigate('e:mplnd', { pre: { field: 'MaMPL', values: [row.MaMPL], label: 'Nội dung của ' + row.TenPL } }) },
+    { text: 'Dán nội dung checklist từ Excel', icon: 'bi-clipboard-plus', show: /checklist/i.test(r.Loai || '') && can('mplnd', 'manage'), fn: row => danNoiDungCL_(row.MaMPL, row.TenPL) },
+    { text: 'Xem bảng số liệu đã nhập', icon: 'bi-table', show: /bảng số liệu/i.test(r.Loai || '') && !/cao độ/i.test(r.NguonSoLieu || '') && can('plsl', 'view'), fn: row => navigate('e:plsl', { pre: { field: 'MaMPL', values: [row.MaMPL], label: 'Bảng số liệu của ' + row.TenPL } }) }
+  ]
+};
+MODULES.lhm = Object.assign(MODULES.lhm || {}, { actions: (r, ctx) => [{ text: 'Kiểm tra file mẫu', icon: 'bi-search', show: !!r.FileMau, fn: row => kiemTraMau_('lhm', row.MaLHM, 'Kiểm tra khung hồ sơ') }] });
+(function () {
+  const cu = MODULES.ct && MODULES.ct.actions;
+  if (!MODULES.ct) MODULES.ct = {};
+  MODULES.ct.actions = (r, ctx) => (cu ? cu(r, ctx) : []).concat([{ text: 'Kiểm tra khung hồ sơ chất lượng', icon: 'bi-search', show: !!r.FileKhungHSCL, fn: row => kiemTraMau_('ct', row.MaCT, 'Kiểm tra khung hồ sơ') }]);
+})();
+/** Dán khối số liệu từ Excel vào bảng phụ lục của 1 hạng mục. it: {maMPL, tenPL, cot[], soDong} */
+function danBangSL_(maHM, tenHM, it, onDone) {
+  const cot = it.cot && it.cot.length ? it.cot : null;
+  const m = modal({ title: 'Dán số liệu — ' + it.tenPL, size: 'lg', body:
+    '<p class="small">Hạng mục: <b>' + esc(tenHM) + '</b>. Trong Excel chọn khối số liệu (mỗi dòng 1 dòng bảng, <b>đúng thứ tự cột</b> dưới đây) → Ctrl+C → dán vào ô dưới (Ctrl+V). Dòng tiêu đề copy kèm tự bỏ qua. Dòng có ô đầu trống = dòng phụ (không đánh TT). Cột tính bằng công thức trong mẫu (vd Khối lượng = D×R×C) không cần dán.</p>' +
+    (cot ? '<div class="tbl-wrap"><table class="tbl small"><thead><tr>' + cot.map((c, i) => '<th>' + (i + 1) + '. ' + esc(c) + '</th>').join('') + '</tr></thead><tbody id="bsl-xem"></tbody></table></div>'
+      : '<p class="small" style="color:var(--warn)">Chưa dò được cột nhập của mẫu (chưa tải file mẫu?) — số liệu vẫn được lưu theo thứ tự cột dán; bấm "Kiểm tra mẫu" ở Thư viện phụ lục để xem tên cột.</p><div class="tbl-wrap"><table class="tbl small"><tbody id="bsl-xem"></tbody></table></div>') +
+    '<textarea class="inp mt-2" id="bsl-txt" rows="10" style="font-family:monospace;white-space:pre"></textarea>' +
+    '<div class="small muted mt-1" id="bsl-dem"></div>' +
+    '<label class="row small mt-2" style="gap:6px"><input type="checkbox" id="bsl-thay"' + (it.soDong ? '' : ' disabled') + '> Xoá ' + (it.soDong || 0) + ' dòng đã nhập trước khi dán (thay thế)</label>',
+    buttons: [{ text: 'Huỷ' }, { text: 'Lưu số liệu', icon: 'bi-clipboard-check', cls: 'primary', fn: (mm, b) => {
+      const txt = $('#bsl-txt', mm.el).value;
+      if (!txt.trim()) return toast('Chưa dán số liệu.', 'warn');
+      withBusy(b, () => api('apiDanBangSoLieu', maHM, it.maMPL, txt, $('#bsl-thay', mm.el).checked)).then(r => {
+        mm.close(); toast('Đã lưu ' + r.soDong + ' dòng số liệu "' + it.tenPL + '".', 'success'); (r.canhBao || []).forEach(w => toast(w, 'warn')); if (onDone) onDone();
+      }).catch(fail);
+    } }] });
+  const ta = $('#bsl-txt', m.el), dem = $('#bsl-dem', m.el), xem = $('#bsl-xem', m.el);
+  ta.addEventListener('input', () => {
+    const d = ta.value.replace(/\r/g, '').split('\n').filter(l => l.trim()).map(l => l.split('\t'));
+    dem.textContent = d.length ? d.length + ' dòng (kể cả tiêu đề nếu có)' : '';
+    const n = cot ? cot.length : Math.max.apply(null, [1].concat(d.map(x => x.length)));
+    xem.innerHTML = d.slice(0, 6).map(x => '<tr>' + Array.from({ length: n }, (_, j) => '<td>' + esc(x[j] === undefined ? '' : x[j]) + '</td>').join('') + '</tr>').join('') + (d.length > 6 ? '<tr><td colspan="' + n + '" class="muted">… ' + (d.length - 6) + ' dòng nữa</td></tr>' : '');
+  });
+  return m;
+}
+/** Các bảng số liệu phụ lục của 1 hạng mục (theo "Phụ lục kèm theo"). */
+function soLieuPhuLuc_(row, onDone) {
+  api('apiBangSoLieuHM', row.MaHM).then(kq => {
+    const coGhi = can('plsld', 'manage') || can('plsld', 'create');
+    let h = '<p class="small">Hạng mục: <b>' + esc(kq.hm.CongViecNghiemThu || kq.hm.MaHM) + '</b>' + (kq.hm.LyTrinh ? ' — ' + esc(kq.hm.LyTrinh) : '') + '</p>';
+    if (!kq.ds.length) h += '<p class="small muted">Hạng mục này không có phụ lục loại "Bảng số liệu" (dán từ Excel). Checklist / đính kèm không cần nhập số liệu.' + (kq.coCaoDo ? ' Phiếu cao độ nhập ở "Phụ lục cao độ - KTHH" (hoặc "Nạp cao độ từ file phân lớp").' : '') + '</p>';
+    else h += '<div class="tbl-wrap"><table class="tbl small"><thead><tr><th>Phụ lục</th><th>Cột nhập</th><th>Đã nhập</th><th></th></tr></thead><tbody>' + kq.ds.map((it, i) =>
+      '<tr><td><b>' + esc(it.tenPL) + '</b>' + (it.coFile ? '' : '<div class="small" style="color:var(--warn)">chưa có file mẫu</div>') + '</td><td>' + esc((it.cot || []).join(' | ') || '—') + '</td><td>' + (it.soDong ? it.soDong + ' dòng' : '<span class="muted">chưa</span>') + '</td><td style="white-space:nowrap">' +
+      (coGhi ? '<button class="btn sm primary" data-dan="' + i + '"><i class="bi bi-clipboard-plus"></i> Dán từ Excel</button> ' : '') + (it.maPLSL ? '<button class="btn sm" data-xem="' + i + '"><i class="bi bi-list-ol"></i> Xem / sửa dòng</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' + (kq.coCaoDo ? '<p class="small muted mt-2">Phiếu cao độ - KTHH: nhập ở "Phụ lục cao độ - KTHH".</p>' : '');
+    const m = modal({ title: 'Số liệu phụ lục', size: 'lg', body: h, buttons: [{ text: 'Đóng' }] });
+    $$('[data-dan]', m.el).forEach(b => b.addEventListener('click', () => { const it = kq.ds[+b.dataset.dan]; m.close(); danBangSL_(row.MaHM, kq.hm.CongViecNghiemThu, it, onDone); }));
+    $$('[data-xem]', m.el).forEach(b => b.addEventListener('click', () => { const it = kq.ds[+b.dataset.xem]; m.close(); navigate('e:plsld', { pre: { field: 'MaPLSL', values: [it.maPLSL], label: it.tenPL + ' — ' + (kq.hm.CongViecNghiemThu || kq.hm.MaHM) } }); }));
+  }).catch(fail);
+}
+MODULES.plsl = {
+  actions: (r, ctx) => [
+    { text: 'Xem / sửa dòng', icon: 'bi-list-ol', fn: row => navigate('e:plsld', { pre: { field: 'MaPLSL', values: [row.MaPLSL], label: 'Dòng số liệu ' + row.MaPLSL } }) },
+    { text: 'Dán số liệu từ Excel', icon: 'bi-clipboard-plus', show: can('plsld', 'manage') || can('plsld', 'create'), fn: (row, c) => api('apiBangSoLieuHM', row.MaHM).then(kq => {
+      const it = kq.ds.find(x => x.maMPL === row.MaMPL);
+      if (!it) return toast('Phụ lục này không còn trong "Phụ lục kèm theo" của hạng mục (hoặc không phải loại Bảng số liệu).', 'warn');
+      danBangSL_(row.MaHM, kq.hm.CongViecNghiemThu, it, () => c.reload());
+    }).catch(fail) }
+  ]
+};
+MODULES.plsld = {
+  toolbar: ctx => [
+    { text: 'Dán từ Excel', icon: 'bi-clipboard-plus', show: can('plsld', 'manage') || can('plsld', 'create'), fn: () => {
+      const ma = ctx.pre && ctx.pre.field === 'MaPLSL' && ctx.pre.values.length === 1 ? ctx.pre.values[0] : (ctx.flt && ctx.flt.MaPLSL) || '';
+      if (!ma) return toast('Mở từ nút "Số liệu phụ lục" của Hạng mục nghiệm thu (hoặc lọc theo 1 bảng số liệu).', 'warn');
+      api('apiBangSoLieuHM', '', ma).then(kq => { const it = kq.ds.find(x => x.maPLSL === ma); if (!it) return toast('Phụ lục không còn trong "Phụ lục kèm theo" của hạng mục (hoặc không phải loại Bảng số liệu).', 'warn'); danBangSL_(kq.hm.MaHM, kq.hm.CongViecNghiemThu, it, () => ctx.reload()); }).catch(fail);
+    } }]
+};
+
+
+/* ====================== Round #42 — Checklist: nội dung (thư viện) + kết quả theo hạng mục ====================== */
+function danNoiDungCL_(maMPL, ten, onDone) {
+  const m = modal({ title: 'Dán nội dung checklist — ' + ten, size: 'lg', body:
+    '<p class="small">Copy từ Excel, mỗi dòng: <b>Nhóm | Nội dung kiểm tra | Phương pháp | Yêu cầu / sai số cho phép | Đơn vị</b>. Nhóm để trống = cùng nhóm dòng trên; dòng chỉ ghi nhóm (vd "II. Trong khi thi công") = bắt đầu nhóm mới. Dòng tiêu đề copy kèm tự bỏ.</p>' +
+    '<textarea class="inp" id="ndcl-txt" rows="12" style="font-family:monospace;white-space:pre" placeholder="I. Trước khi thi công\tĐịnh vị tim mốc\tMáy toàn đạc\tTheo bản vẽ"></textarea>' +
+    '<label class="row small mt-2" style="gap:6px"><input type="checkbox" id="ndcl-thay"> Xoá nội dung cũ của checklist này trước khi dán (thay thế)</label>',
+    buttons: [{ text: 'Huỷ' }, { text: 'Lưu nội dung', icon: 'bi-clipboard-check', cls: 'primary', fn: (mm, b) => {
+      const t = $('#ndcl-txt', mm.el).value; if (!t.trim()) return toast('Chưa dán nội dung.', 'warn');
+      withBusy(b, () => api('apiDanNoiDungChecklist', maMPL, t, $('#ndcl-thay', mm.el).checked)).then(r => { mm.close(); toast('Đã lưu ' + r.soDong + ' nội dung kiểm tra.', 'success'); if (onDone) onDone(); }).catch(fail);
+    } }] });
+  return m;
+}
+MODULES.mplnd = {
+  toolbar: ctx => [{ text: 'Dán từ Excel', icon: 'bi-clipboard-plus', show: can('mplnd', 'manage'), fn: () => {
+    const ma = ctx.pre && ctx.pre.field === 'MaMPL' && ctx.pre.values.length === 1 ? ctx.pre.values[0] : (ctx.flt && ctx.flt.MaMPL) || '';
+    if (!ma) return toast('Lọc theo 1 checklist (hoặc mở từ Thư viện phụ lục → "Nội dung kiểm tra").', 'warn');
+    danNoiDungCL_(ma, ma, () => ctx.reload());
+  } }]
+};
+/** Nhập kết quả Đạt / Không đạt / số đo cho các checklist của 1 hạng mục. */
+function ketQuaChecklist_(row) {
+  api('apiChecklistHM', row.MaHM).then(kq => {
+    const coGhi = can('kqcl', 'manage') || can('kqcl', 'create');
+    if (!kq.ds.length) return toast('Hạng mục chưa chọn checklist nào trong "Phụ lục kèm theo".', 'warn');
+    const KQ = ['', 'Đạt', 'Không đạt', 'Không áp dụng'];
+    let h = '<p class="small">Hạng mục: <b>' + esc(kq.hm.CongViecNghiemThu || kq.hm.MaHM) + '</b>' + (kq.hm.LyTrinh ? ' — ' + esc(kq.hm.LyTrinh) : '') + '. Dòng để trống = ô Đạt / Không đạt trên phiếu để trống (ký tay).</p>';
+    kq.ds.forEach((cl, i) => {
+      h += '<h4 class="mt-2">' + esc(cl.tenPL) + (cl.coFile ? '' : ' <span class="small muted">(mẫu dựng sẵn)</span>') + '</h4>';
+      if (!cl.nd.length) { h += '<p class="small" style="color:var(--warn)">Checklist chưa có nội dung kiểm tra — khai ở Thư viện phụ lục → "Nội dung kiểm tra" (xuất sẽ giữ nguyên nội dung file mẫu).</p>'; return; }
+      h += '<div class="tbl-wrap"><table class="tbl small"><thead><tr><th>Nội dung kiểm tra</th><th>Yêu cầu</th><th style="width:130px">Kết quả</th><th style="width:110px">Thực tế</th><th style="width:120px">Ghi chú</th></tr></thead><tbody>';
+      let nhom = null;
+      cl.nd.forEach((d, j) => {
+        if (d.Nhom !== nhom) { nhom = d.Nhom; if (nhom) h += '<tr><td colspan="5"><b>' + esc(nhom) + '</b></td></tr>'; }
+        h += '<tr data-cl="' + i + '" data-nd="' + esc(d.MaND) + '"><td>' + esc(d.NoiDung) + '</td><td class="muted">' + esc(d.YeuCau || '') + '</td><td><select class="inp sm" data-f="KetQua"' + (coGhi ? '' : ' disabled') + '>' + KQ.map(v => '<option' + (v === d.KetQua ? ' selected' : '') + ' value="' + esc(v) + '">' + (v || '—') + '</option>').join('') + '</select></td>' +
+          '<td><input class="inp sm" data-f="ThucTe" value="' + esc(d.ThucTe || '') + '"' + (coGhi ? '' : ' disabled') + '></td><td><input class="inp sm" data-f="GhiChu" value="' + esc(d.GhiChu || '') + '"' + (coGhi ? '' : ' disabled') + '></td></tr>';
+      });
+      h += '</tbody></table></div>' + (coGhi ? '<button class="btn sm mt-1" data-dat="' + i + '"><i class="bi bi-check-all"></i> Chọn "Đạt" cho các dòng còn trống</button>' : '');
+    });
+    const m = modal({ title: 'Kết quả checklist', size: 'lg', body: h, buttons: coGhi ? [{ text: 'Đóng' }, { text: 'Lưu kết quả', icon: 'bi-save', cls: 'primary', fn: (mm, b) => {
+      const viec = kq.ds.map((cl, i) => () => api('apiLuuChecklistHM', row.MaHM, cl.maMPL, $$('tr[data-cl="' + i + '"]', mm.el).map(tr => ({ MaND: tr.dataset.nd, KetQua: $('[data-f=KetQua]', tr).value, ThucTe: $('[data-f=ThucTe]', tr).value, GhiChu: $('[data-f=GhiChu]', tr).value }))));
+      withBusy(b, () => viec.reduce((p, f) => p.then(f), Promise.resolve())).then(() => { mm.close(); toast('Đã lưu kết quả checklist.', 'success'); }).catch(fail);
+    } }] : [{ text: 'Đóng' }] });
+    $$('[data-dat]', m.el).forEach(bt => bt.addEventListener('click', () => { $$('tr[data-cl="' + bt.dataset.dat + '"] [data-f=KetQua]', m.el).forEach(sel => { if (!sel.value) sel.value = 'Đạt'; }); }));
+  }).catch(fail);
+}
+
+
+/* ====================== Round #42 — Xuất thử mẫu, xuất mỗi hạng mục 1 file (.zip tạo ngay trên trình duyệt) ====================== */
+function xuatThuMau_(row) {
+  api('apiHangMucCoPL', row.MaMPL).then(ds => {
+    const m = modal({ title: 'Xuất thử — ' + row.TenPL, body:
+      '<p class="small">Tạo 1 file Excel gồm 2 sheet: <b>MẪU GỐC</b> (chép nguyên file mẫu) và <b>XUẤT THỬ</b> (đã điền dữ liệu) — mở bằng Excel, xem trước khi in (Ctrl+F2) từng sheet để so cỡ chữ, kẻ ô, khổ giấy, ngắt trang.</p>' +
+      '<label class="lbl">Điền dữ liệu của hạng mục</label><select class="inp" id="xt-hm"><option value="">(dữ liệu mẫu)</option>' + ds.map(x => '<option value="' + esc(x.MaHM) + '">' + esc(x.ten) + '</option>').join('') + '</select>' +
+      (ds.length ? '' : '<p class="small muted mt-1">Chưa có hạng mục nào chọn phụ lục này — dùng dữ liệu mẫu.</p>'),
+      buttons: [{ text: 'Huỷ' }, { text: 'Tải file xuất thử', icon: 'bi-download', cls: 'primary', fn: (mm, b) => withBusy(b, () => api('apiXuatThuMau', row.MaMPL, $('#xt-hm', mm.el).value)).then(r => {
+        downloadBinary(r.filename, r.base64, r.mime); mm.close(); toast('Đã tạo file xuất thử' + (r.hangMuc ? ' theo hạng mục "' + r.hangMuc + '"' : ' (dữ liệu mẫu)') + '.', 'success'); (r.canhBao || []).forEach(w => toast(w, 'warn'));
+      }).catch(fail) }] });
+    return m;
+  }).catch(fail);
+}
+/** ZIP không nén (STORE) — file .xlsx vốn đã nén; tên file tiếng Việt (UTF-8, cờ bit 11). files: [{name, bytes: Uint8Array}] -> Blob */
+function zipStore_(files) {
+  const T = zipStore_.T || (zipStore_.T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })());
+  const crc = u => { let c = 0xFFFFFFFF; for (let i = 0; i < u.length; i++) c = T[(c ^ u[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  const enc = new TextEncoder(), parts = [], cen = []; let off = 0;
+  const d = new Date(), dt = ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF, dd = (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF;
+  files.forEach(f => {
+    const nm = enc.encode(f.name), c = crc(f.bytes), n = f.bytes.length;
+    const h = new DataView(new ArrayBuffer(30));
+    [[0, 0x04034b50, 4], [4, 20, 2], [6, 0x0800, 2], [8, 0, 2], [10, dt, 2], [12, dd, 2], [14, c, 4], [18, n, 4], [22, n, 4], [26, nm.length, 2], [28, 0, 2]].forEach(x => (x[2] === 4 ? h.setUint32(x[0], x[1], true) : h.setUint16(x[0], x[1], true)));
+    parts.push(new Uint8Array(h.buffer), nm, f.bytes);
+    const e = new DataView(new ArrayBuffer(46));
+    [[0, 0x02014b50, 4], [4, 20, 2], [6, 20, 2], [8, 0x0800, 2], [10, 0, 2], [12, dt, 2], [14, dd, 2], [16, c, 4], [20, n, 4], [24, n, 4], [28, nm.length, 2], [30, 0, 2], [32, 0, 2], [34, 0, 2], [36, 0, 2], [38, 0, 4], [42, off, 4]].forEach(x => (x[2] === 4 ? e.setUint32(x[0], x[1], true) : e.setUint16(x[0], x[1], true)));
+    cen.push(new Uint8Array(e.buffer), nm);
+    off += 30 + nm.length + n;
+  });
+  const cs = cen.reduce((a, u) => a + u.length, 0), z = new DataView(new ArrayBuffer(22));
+  [[0, 0x06054b50, 4], [4, 0, 2], [6, 0, 2], [8, files.length, 2], [10, files.length, 2], [12, cs, 4], [16, off, 4], [20, 0, 2]].forEach(x => (x[2] === 4 ? z.setUint32(x[0], x[1], true) : z.setUint16(x[0], x[1], true)));
+  return new Blob(parts.concat(cen, [new Uint8Array(z.buffer)]), { type: 'application/zip' });
+}
+function tenFileHM_(i, hm) { return (String(i + 1).padStart(2, '0') + '. ' + [hm.KyHieu, hm.SoLop !== '' && hm.SoLop !== undefined && hm.SoLop !== null ? 'L' + hm.SoLop : '', hm.CongViecNghiemThu].filter(Boolean).join(' - ')).replace(/[\\/:*?"<>|]+/g, '-').slice(0, 90) + '.xlsx'; }
+/** Gọi xuất lần lượt từng hạng mục (mỗi lần 1 file, không vướng giới hạn dung lượng của máy chủ) rồi nén chung 1 file .zip. */
+function xuatTungHangMuc_(maCT, rows, tenDot, loai) {
+  const ds = rows.slice().sort((a, b) => ((a.NgayNT || '') < (b.NgayNT || '') ? -1 : 1)), files = [], canhBao = [];
+  const tb = toast('Đang xuất 0/' + ds.length + ' hạng mục…', 'info', 600000);
+  return ds.reduce((p, hm, i) => p.then(() => api('apiXuatHoSoChatLuongXlsx', maCT, [hm.MaHM], tenDot, loai).then(r => {
+    const bin = atob(r.base64), u = new Uint8Array(bin.length); for (let k = 0; k < bin.length; k++) u[k] = bin.charCodeAt(k);
+    files.push({ name: tenFileHM_(i, hm), bytes: u }); (r.canhBao || []).forEach(w => canhBao.push(w));
+    if (tb && tb.querySelector) { const d = tb.querySelector('div'); if (d) d.textContent = 'Đang xuất ' + (i + 1) + '/' + ds.length + ' hạng mục…'; }
+  })), Promise.resolve()).then(() => {
+    if (tb && tb.remove) tb.remove();
+    const blob = zipStore_(files), a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'HoSoChatLuong_' + maCT + (tenDot ? '_' + String(tenDot).replace(/[^\w\-]+/g, '') : '') + '_' + new Date().toISOString().slice(0, 10) + '.zip';
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+    toast('Đã tạo ' + files.length + ' file hồ sơ (mỗi hạng mục 1 file) trong 1 file .zip.', 'success');
+    if (canhBao.length) modal({ title: 'Lưu ý khi kiểm tra hồ sơ vừa xuất', body: '<ul class="small" style="padding-left:18px">' + canhBao.filter((v, j, a2) => a2.indexOf(v) === j).slice(0, 40).map(w => '<li>' + esc(w) + '</li>').join('') + '</ul>', buttons: [{ text: 'Đóng' }] });
+  }).catch(e => { if (tb && tb.remove) tb.remove(); throw e; });
+}
+
+/* ===== 66_tiendo_duthau: round #43 — Tiến độ dự thầu: gộp công việc BOQ thành công việc cha (tên / ĐV / KL tự đặt), đầu việc ngoài BOQ
+ * (lán trại, huy động…), ngày cha = sớm nhất / muộn nhất của việc con; nhân lực – máy – vật liệu theo tháng từ hao phí file dự thầu; xuất Excel như mẫu 3.1. ===== */
+
+/** Chọn các sheet phân tích vật tư / tổng hợp hao phí trong file dự thầu rồi gửi lên (giới hạn dung lượng: ưu tiên sheet PTVT, không có mới gửi THVL/THNC/THM). */
+function docHaoPhiDT_(maCT, sheets, tenFile, boQuaSi) {
+  const ten = s => norm(s.name).replace(/[^a-z0-9]/g, '');
+  const laPT = s => /ptvt|phantichvattu|phantichvt|ptvl|phantichvl|hpvt|haophi/.test(ten(s));
+  const laTH = s => /^(th)?(vl|nc|m|mtc|may)$|thvl|thnc|thm$|thmay|tonghopvattu|tonghopvatlieu|tonghopnhancong|tonghopmay|tonghopca/.test(ten(s));
+  const gon = s => ({ name: s.name, rows: (s.rows || []).map(r => { r = (r || []).slice(0, 30); let n = r.length; while (n && (r[n - 1] === '' || r[n - 1] === null || r[n - 1] === undefined)) n--; return r.slice(0, n); }) });
+  const ds = (sheets || []).filter((s, i) => i !== boQuaSi);
+  let chon = ds.filter(laPT);
+  if (!chon.length) chon = ds.filter(s => !laTH(s) && /phantich/.test(ten(s)) && !/dongia|ptdg/.test(ten(s)));
+  const th = ds.filter(laTH);
+  const gui = list => list.length ? api('apiNhapHaoPhiDT', maCT, { sheets: list.map(gon), tenFile: tenFile || '' }) : Promise.resolve(null);
+  return gui(chon).then(k => (k && k.ghep) || !th.length ? k : gui(th));
+}
+
+PAGES.tddt = { title: 'Tiến độ dự thầu', render: function (ctx, params) {
+  withCTs(ctx, () => {
+    const st = { d: null, boq: null, tab: 'nl', maCT: '' };
+    const sua = can('tdn', 'manage'), them = sua || can('tdn', 'create');
+    const kc = () => $('#tp-kc', ctx.el).value;
+    const o = extra => Object.assign({ ngayKC: kc() }, extra || {});
+    const tb = '<span class="small muted">Khởi công dự kiến</span><input type="date" class="inp sm" id="tp-kc" style="width:140px" aria-label="Ngày khởi công dự kiến" title="Chỉ dùng để lập / xem / xuất tiến độ; ngày khởi công của công trình giữ nguyên">';
+    const right = (sua ? '<label class="btn" style="cursor:pointer" title="Đọc sheet phân tích vật tư (PTVT) hoặc tổng hợp vật liệu / nhân công / máy (THVL, THNC, THM) của file dự thầu → hao phí từng công việc BOQ"><i class="bi bi-file-earmark-arrow-up"></i>Đọc hao phí file dự thầu<input type="file" id="tp-file" accept=".xlsx,.xlsm,.xls" hidden></label>' : '') +
+      (them ? '<button class="btn" id="tp-nhanh"><i class="bi bi-magic"></i>Tạo nhanh từ BOQ</button><button class="btn" id="tp-pt" title="Công tác chuẩn bị, lán trại, huy động, hoàn thiện, bàn giao… (không có trong BOQ)"><i class="bi bi-plus-square-dotted"></i>Đầu việc ngoài BOQ</button><button class="btn" id="tp-them"><i class="bi bi-plus-lg"></i>Công việc cha</button>' : '') +
+      (sua ? '<button class="btn" id="tp-ap" title="Ghi ngày kế hoạch của từng công việc BOQ theo kế hoạch công việc cha (bỏ qua việc đã chốt ngày)"><i class="bi bi-check2-all"></i>Áp ngày cho việc con</button>' : '') +
+      '<button class="btn primary" id="tp-xls"><i class="bi bi-file-earmark-excel"></i>Xuất Excel</button>';
+    ctPage(ctx, { params: params, required: true, toolbar: tb, right: right,
+      load: (maCT, body) => {
+        const ct = (S.lk.ct || []).find(c => c.MaCT === maCT) || {};
+        if (st.maCT !== maCT) { st.maCT = maCT; st.boq = null; $('#tp-kc', ctx.el).value = ct.NgayKhoiCong || todayStr(); }
+        tai(body);
+      } });
+    $('#tp-kc', ctx.el).addEventListener('change', () => tai());
+    function tai(body, giuCuon) {
+      body = body || $('.page-body', ctx.el); if (!st.maCT) return;
+      const sc = window.scrollY;
+      api('apiTDDT', st.maCT, o()).then(d => { if (!ctx.alive()) return; st.d = d; ve(body); if (giuCuon) window.scrollTo(0, sc); }).catch(e => pageError(ctx, e));
+    }
+    const lamMoi = () => { st.boq = null; dropLookup('bcv'); tai(null, true); };
+    const soNgay = (a, b) => a && b ? Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000) + 1 : '';
+    const dsCha = () => st.d ? st.d.sections.reduce((a, s) => a.concat(s.ds), []) : [];
+    const tenCha = ma => { const x = dsCha().find(y => y.MaNhom === ma); return x ? x.stt + '. ' + x.ten : ma; };
+    const tdTxt = x => (x.tienDe || []).map(t => tenCha(t.ma) + (t.kieu && t.kieu !== 'FS' ? ' (' + t.kieu + ')' : '') + (t.lag ? ' ' + (t.lag > 0 ? '+' : '') + t.lag + 'n' : '')).join('; ');
+
+    /* ---------- Vẽ trang ---------- */
+    function ve(body) {
+      const d = st.d, tk = d.thongKe, cha = dsCha();
+      let h = '<div class="kpis">' + kpiCard({ l: 'Khởi công dự kiến', v: fmtDate(d.ngayKC) }) + kpiCard({ l: 'Hoàn thành dự kiến', v: cha.length ? fmtDate(d.kt) : '—', cls: 'ok' }) +
+        kpiCard({ l: 'Thời gian thi công', v: cha.length ? d.tongNgay + ' ngày' : '—', s: d.thang.length + ' tháng' }) +
+        kpiCard({ l: 'Công việc cha', v: cha.length, s: cha.filter(x => !x.soCon).length + ' đầu việc ngoài BOQ', cls: 'info' }) +
+        kpiCard({ l: 'Công việc BOQ đã gộp', v: tk.daGop + ' / ' + tk.boq, s: tk.chuaGop ? tk.chuaGop + ' chưa gộp (' + fmtBig(tk.giaTriChuaGop) + ' đ)' : 'đủ', cls: tk.chuaGop ? 'warn' : 'ok', go: tk.chuaGop ? 'x' : '' }) +
+        kpiCard({ l: 'Có hao phí (PTVT)', v: tk.coHaoPhi + ' / ' + tk.boq, s: tk.coHaoPhi ? 'nhân lực cao điểm ' + Math.max.apply(null, [0].concat(d.nhanLucTong)) + ' người' : 'bấm "Đọc hao phí file dự thầu"', cls: tk.coHaoPhi ? '' : 'warn' }) + '</div>';
+      h += (d.canhBao || []).map(w => '<div class="banner mt-2"><i class="bi bi-exclamation-triangle"></i>' + esc(w) + '</div>').join('');
+      if (!cha.length) {
+        h += '<div class="card mt-2"><div class="card-b"><div class="empty" style="padding:18px 8px"><i class="bi bi-calendar3-range"></i>Chưa có công việc nào trên bảng tiến độ dự thầu.</div>' +
+          '<p class="hint"><b>Cách lập:</b> (1) Nhập BOQ từ file dự thầu (trang "Nhập BOQ") — sheet phân tích vật tư được đọc kèm; hoặc bấm <b>Đọc hao phí file dự thầu</b>. (2) <b>Tạo nhanh từ BOQ</b> (mỗi nhóm công việc thành 1 công việc cha, số ngày tính theo tổng công) hoặc tự <b>thêm công việc cha</b> rồi <b>chọn việc con</b> (tìm theo từ khoá). ' +
+          '(3) Thêm <b>đầu việc ngoài BOQ</b>: huy động, lán trại, định vị, hoàn thiện, bàn giao… (4) Sửa việc trước (FS / SS / FF + ngày trễ), số ngày → ngày công việc cha = bắt đầu sớm nhất / kết thúc muộn nhất của việc con. (5) <b>Xuất Excel</b>: tiến độ kỳ 10 ngày, biểu đồ nhân lực, thiết bị, kế hoạch vật liệu — toàn bộ bằng công thức liên kết.</p></div></div>';
+        body.innerHTML = h; ganKpi(body); return;
+      }
+      // sơ đồ ngang
+      const t0 = new Date(d.bd + 'T00:00:00').getTime(), days = Math.max(1, d.tongNgay), px = days <= 120 ? 7 : days <= 240 ? 4 : days <= 480 ? 2.5 : 1.5, W = Math.round(days * px);
+      const pos = s => Math.round((new Date(s + 'T00:00:00').getTime() - t0) / 86400000 * px);
+      const bar = (bd, kt, cls, tip, mau) => '<span class="gt-bar ' + cls + '" style="left:' + pos(bd) + 'px;width:' + Math.max(3, pos(kt) - pos(bd) + px) + 'px' + (mau ? ';background:' + mau : '') + '" title="' + esc(tip) + '"></span>';
+      let ticks = ''; d.thang.forEach(t => { ticks += '<span class="gt-tick" style="left:' + Math.max(0, pos(t.bd)) + 'px">T' + t.m + '/' + String(t.y).slice(2) + '</span>'; });
+      const lane = inner => '<div class="gt-lane" style="width:' + W + 'px">' + inner + '</div>';
+      let rows = '';
+      d.sections.forEach(s => {
+        rows += '<tr class="gt-hm"><td class="nowrap"><b>' + esc(s.ma) + '</b></td><td colspan="' + (sua ? 4 : 3) + '"><b>' + esc(s.ten) + '</b></td><td class="num small">' + soNgay(s.bd, s.kt) + '</td><td class="nowrap small">' + fmtDate(s.bd) + '</td><td class="nowrap small">' + fmtDate(s.kt) + '</td><td></td><td>' + lane(bar(s.bd, s.kt, 'hm', s.ten, '#7F6000')) + '</td>' + (them ? '<td></td>' : '') + '</tr>';
+        s.ds.forEach(x => {
+          const conTxt = x.soCon ? '<a href="#" data-con="' + esc(x.MaNhom) + '" title="Xem / chọn việc con">' + x.soCon + ' việc</a>' + (x.soChot ? '<div class="xs muted">' + x.soChot + ' chốt ngày</div>' : '') + (x.soLech ? '<div class="xs tx-warn" title="Việc con đã chốt ngày nằm ngoài kế hoạch công việc cha">' + x.soLech + ' lệch</div>' : '')
+            : '<span class="badge" title="Đầu việc ngoài BOQ — dùng số ngày / ngày bắt đầu riêng">ngoài BOQ</span>' + (x.ncpt ? '<div class="xs muted">' + x.ncpt + ' người/ngày</div>' : '');
+          const tip = x.ten + '\n' + fmtDate(x.bd) + ' → ' + fmtDate(x.kt) + (x.soCon && (x.bd !== x.plan.bd || x.kt !== x.plan.kt) ? '\nKế hoạch nhóm: ' + fmtDate(x.plan.bd) + ' → ' + fmtDate(x.plan.kt) : '') + (x.note ? '\n' + x.note : '');
+          rows += '<tr data-n="' + esc(x.MaNhom) + '"><td class="num small">' + x.stt + '</td><td style="min-width:240px">' + esc(x.ten) + (x.note ? '<div class="xs muted" title="' + esc(x.noteTay ? 'Ghi chú tự nhập' : 'Tự tính từ hao phí nhân công, ca máy') + '"><i class="bi bi-people"></i> ' + esc(x.note) + '</div>' : '') + (x.tienDe && x.tienDe.length ? '<div class="xs muted"><i class="bi bi-arrow-return-right"></i> sau: ' + esc(tdTxt(x)) + '</div>' : x.batDauCoDinh ? '<div class="xs muted">bắt đầu cố định ' + fmtDate(x.batDauCoDinh) + '</div>' : '') + '</td>' +
+            '<td class="small">' + esc(x.dv || '') + '</td><td class="num small">' + (x.kl === '' || x.kl === null ? '' : fmtNum(x.kl, 3)) + '</td>' + (sua ? '<td class="nowrap">' + '<button class="btn sm icon ghost" data-len title="Lên" aria-label="Lên"><i class="bi bi-arrow-up"></i></button><button class="btn sm icon ghost" data-xuong title="Xuống" aria-label="Xuống"><i class="bi bi-arrow-down"></i></button></td>' : '') +
+            '<td class="num small" title="Số ngày kế hoạch (nhập)">' + x.ngay + (x.soCon && x.ngay !== x.soNgay ? '<div class="xs muted">KH ' + x.soNgay + '</div>' : '') + '</td><td class="nowrap small">' + fmtDate(x.bd) + '</td><td class="nowrap small">' + fmtDate(x.kt) + '</td><td class="small">' + conTxt + '</td>' +
+            '<td>' + lane(bar(x.bd, x.kt, x.soCon ? 'cv' : 'grp', tip, x.soCon ? '#2F5597' : '#8EA9DB')) + '</td>' +
+            (them ? '<td class="nowrap"><button class="btn sm icon ghost" data-sua title="Sửa công việc cha (tên, ĐV, KL, số ngày, việc trước)" aria-label="Sửa"><i class="bi bi-pencil"></i></button>' + (sua ? '<button class="btn sm icon ghost" data-chon title="Chọn việc con trong BOQ" aria-label="Chọn việc con"><i class="bi bi-list-check"></i></button><button class="btn sm icon ghost" data-xoa title="Xoá công việc cha (việc con trở về chưa gộp)" aria-label="Xoá"><i class="bi bi-trash"></i></button>' : '') + '</td>' : '') + '</tr>';
+        });
+      });
+      h += '<div class="card mt-2"><div class="card-h row wrap" style="gap:10px"><span>Bảng tiến độ — công việc cha</span><span class="xs muted"><span class="gt-lg" style="background:#2F5597"></span>gộp từ BOQ <span class="gt-lg" style="background:#8EA9DB"></span>đầu việc ngoài BOQ <span class="gt-lg" style="background:#7F6000"></span>phân đoạn</span><span class="grow"></span>' +
+        (tk.chuaGop ? '<button class="btn sm" id="tp-chua"><i class="bi bi-exclamation-circle"></i>' + tk.chuaGop + ' việc BOQ chưa gộp</button>' : '') + '</div>' +
+        '<div class="card-b flush"><div class="tbl-wrap gt-wrap" style="max-height:70vh"><table class="tbl gt"><thead><tr><th>STT</th><th>Công việc</th><th>ĐV</th><th class="num">Khối lượng</th>' + (sua ? '<th></th>' : '') + '<th class="num">Số ngày</th><th>Bắt đầu</th><th>Kết thúc</th><th>Việc con</th><th><div class="gt-scale" style="width:' + W + 'px">' + ticks + '</div></th>' + (them ? '<th></th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
+      h += nguonLucHTML(d);
+      body.innerHTML = h; ganKpi(body); ganBang(body); ganNL(body);
+    }
+    function ganKpi(body) { const k = $('.kpi.click', body); if (k) k.addEventListener('click', () => moChonBOQ({ multi: true, chiChuaGop: true, title: 'Công việc BOQ chưa gộp vào công việc cha', xem: true })); }
+
+    /* ---------- Nguồn lực theo tháng ---------- */
+    function nguonLucHTML(d) {
+      if (!d.thang.length) return '';
+      const thHead = '<th>Tên</th><th>ĐV</th>' + d.thang.map(t => '<th class="num">T' + t.m + '/' + String(t.y).slice(2) + '</th>').join('') + '<th class="num">Cao nhất / Tổng</th>';
+      const bang = (ds, tong, laVL) => '<div class="tbl-wrap" style="max-height:50vh"><table class="tbl"><thead><tr>' + thHead + '</tr></thead><tbody>' +
+        (tong ? '<tr style="font-weight:700;background:var(--line-2)"><td>TỔNG</td><td>' + (st.tab === 'nl' ? 'người' : 'máy') + '</td>' + tong.map(v => '<td class="num">' + (v || '') + '</td>').join('') + '<td class="num">' + Math.max.apply(null, [0].concat(tong)) + '</td></tr>' : '') +
+        ds.map(x => '<tr><td>' + esc(x.ten) + '</td><td class="small">' + esc(laVL ? x.dv : (st.tab === 'nl' ? 'người' : 'máy')) + '</td>' + (laVL ? x.thang : x.so).map(v => '<td class="num small">' + (v ? fmtNum(v, laVL ? 2 : 0) : '') + '</td>').join('') + '<td class="num small">' + (laVL ? fmtNum(x.tong, 2) + (x.bd ? '<div class="xs muted">cần từ ' + fmtDate(x.bd) + '</div>' : '') : Math.max.apply(null, [0].concat(x.so))) + '</td></tr>').join('') +
+        (ds.length ? '' : '<tr><td colspan="' + (d.thang.length + 3) + '">' + emptyState('Chưa có hao phí — bấm "Đọc hao phí file dự thầu" (sheet phân tích vật tư).') + '</td></tr>') + '</tbody></table></div>';
+      const bieuDo = (tong, mau, dv) => { const mx = Math.max.apply(null, [1].concat(tong)); return '<div class="tp-chart">' + tong.map((v, i) => '<div class="tp-col" title="' + esc('T' + d.thang[i].m + '/' + d.thang[i].y + ': ' + v + ' ' + dv) + '"><span class="xs">' + (v || '') + '</span><i style="height:' + Math.round(v / mx * 100) + '%;background:' + mau + '"></i><span class="xs muted">T' + d.thang[i].m + '</span></div>').join('') + '</div>'; };
+      const tab = st.tab, nd = tab === 'nl' ? bieuDo(d.nhanLucTong, '#2F5597', 'người') + bang(d.nhanLuc, d.nhanLucTong) : tab === 'may' ? bieuDo(d.mayTong, '#C55A11', 'máy') + bang(d.may, d.mayTong) : bang(d.vatLieu, null, true) + '<p class="hint">' + d.vatLieu.length + ' / ' + d.soVatLieu + ' loại vật liệu chủ yếu (chiếm ~90% giá trị vật liệu ' + fmtBig(d.tongGiaTriVL) + ' đ). File Excel có đủ công thức: cần từ ngày = ngày bắt đầu sớm nhất của công việc dùng vật liệu − số ngày dự trữ.</p>';
+      return '<div class="card mt-2"><div class="card-h">Nguồn lực theo tháng (tính từ hao phí × khối lượng, phân bổ đều theo ngày thi công việc con)</div><div class="card-b"><div class="tabs" id="tp-tabs">' +
+        [['nl', 'Nhân lực'], ['may', 'Máy, thiết bị'], ['vl', 'Vật liệu chủ yếu']].map(t => '<div class="tab' + (tab === t[0] ? ' on' : '') + '" data-t="' + t[0] + '">' + t[1] + '</div>').join('') + '</div><div id="tp-nl">' + nd + '</div>' +
+        '<p class="hint">Số người (máy) trong tháng = số công (ca) của tháng ÷ (số ngày thi công trong tháng × 26/30), làm tròn lên. Đầu việc ngoài BOQ tính theo "Nhân công (người/ngày)" khai ở từng đầu việc.</p></div></div>';
+    }
+    function ganNL(body) { $$('#tp-tabs .tab', body).forEach(t => t.addEventListener('click', () => { st.tab = t.getAttribute('data-t'); const c = $('#tp-tabs', body).closest('.card'); const tmp = document.createElement('div'); tmp.innerHTML = nguonLucHTML(st.d); c.replaceWith(tmp.firstChild); ganNL(body); })); }
+
+    /* ---------- Thao tác trên bảng ---------- */
+    function ganBang(body) {
+      $$('tr[data-n]', body).forEach(tr => {
+        const ma = tr.getAttribute('data-n'), x = dsCha().find(y => y.MaNhom === ma);
+        const b = (sel, fn) => { const el = $(sel, tr); if (el) el.addEventListener('click', e => { e.preventDefault(); fn(e.currentTarget); }); };
+        b('[data-sua]', () => moSua(x)); b('[data-chon]', () => moChonCon(x)); b('[data-con]', () => moChonCon(x));
+        b('[data-xoa]', btn => confirmDlg('Xoá công việc cha "' + x.ten + '"?\n' + (x.soCon ? x.soCon + ' việc con trở về "chưa gộp" (giữ ngày kế hoạch đã có). ' : '') + 'Công việc nào đang nối sau công việc này sẽ nối vào việc trước của nó.', { danger: true, ok: 'Xoá' })
+          .then(ok => ok && withBusy(btn, () => api('apiTDDTXoaNhom', ma)).then(() => { toast('Đã xoá.', 'success'); lamMoi(); }).catch(fail)));
+        b('[data-len]', btn => doiCho(ma, -1, btn)); b('[data-xuong]', btn => doiCho(ma, 1, btn));
+      });
+      const c = $('#tp-chua', body); if (c) c.addEventListener('click', () => moChonBOQ({ multi: true, chiChuaGop: true, title: 'Công việc BOQ chưa gộp vào công việc cha', xem: true }));
+    }
+    function doiCho(ma, huong, btn) {
+      const ds = dsCha(), i = ds.findIndex(x => x.MaNhom === ma), j = i + huong; if (i < 0 || j < 0 || j >= ds.length) return;
+      const x = ds[i], y = ds[j], moi = ds.map(z => ({ MaNhom: z.MaNhom }));
+      moi[i] = { MaNhom: y.MaNhom }; moi[j] = { MaNhom: x.MaNhom };
+      if (x.phanDoan !== y.phanDoan) moi[j].PhanDoan = y.phanDoan; // sang phân đoạn khác -> theo phân đoạn của vị trí mới
+      withBusy(btn, () => api('apiTDDTSapXep', st.maCT, moi)).then(() => tai(null, true)).catch(fail);
+    }
+
+    /* ---------- Danh sách công việc BOQ (chọn việc con / lấy khối lượng) ---------- */
+    const napBOQ = () => st.boq ? Promise.resolve(st.boq) : api('apiTDDTViecBOQ', st.maCT).then(r => { st.boq = r; r.forEach(b => { b._s = norm(b.mh + ' ' + b.ten + ' ' + b.hm + ' ' + b.nh + ' ' + b.dv); }); return r; });
+    /** o: {multi, chon (mảng id đang chọn), maNhom (công việc cha đang chọn việc con), chiChuaGop, title, xem (chỉ xem), onOk(ids | item)} */
+    function moChonBOQ(o) {
+      napBOQ().then(ds => {
+        const chon = {}; (o.chon || []).forEach(id => { chon[id] = 1; });
+        const hms = []; ds.forEach(b => { if (b.hm && hms.indexOf(b.hm) < 0) hms.push(b.hm); });
+        const m = modal({ title: o.title || 'Chọn công việc BOQ', size: 'xl', sticky: !o.xem,
+          body: '<div class="row wrap" style="gap:8px;margin-bottom:8px"><div class="grow" style="min-width:220px;position:relative"><i class="bi bi-search" style="position:absolute;left:10px;top:9px;color:var(--muted)"></i><input class="inp" id="cb-q" placeholder="Tìm theo từ khoá: tên công việc, mã hiệu, hạng mục… (không cần dấu, nhiều từ = phải có đủ)" style="padding-left:32px"></div>' +
+            '<select class="inp" id="cb-hm" style="width:auto;max-width:260px"><option value="">Tất cả hạng mục</option>' + hms.map(x => '<option>' + esc(x) + '</option>').join('') + '</select>' +
+            (o.multi ? '<label class="small row" style="gap:4px"><input type="checkbox" id="cb-cg"' + (o.chiChuaGop || o.maNhom ? ' checked' : '') + '>' + (o.maNhom ? 'Ẩn việc đã thuộc công việc cha khác' : 'Chỉ việc chưa gộp') + '</label>' + (o.xem ? '' : '<label class="small row" style="gap:4px"><input type="checkbox" id="cb-dc">Chỉ việc đang chọn</label>') : '') + '</div>' +
+            '<div class="small muted" id="cb-info" style="margin-bottom:6px"></div><div class="tbl-wrap" style="max-height:58vh"><table class="tbl"><thead><tr>' + (o.multi && !o.xem ? '<th><input type="checkbox" id="cb-all" title="Chọn / bỏ chọn tất cả dòng đang hiện"></th>' : '<th></th>') + '<th>Mã hiệu</th><th>Công việc</th><th>ĐV</th><th class="num">Khối lượng</th><th>Hạng mục / nhóm</th><th>Công việc cha</th></tr></thead><tbody id="cb-b"></tbody></table></div>',
+          buttons: o.xem ? [{ text: 'Đóng' }] : o.multi ? [{ text: 'Huỷ' }, { text: 'Lưu việc con', icon: 'bi-check2', cls: 'primary', fn: (mm, btn) => { const ids = Object.keys(chon); o.onOk(ids, mm, btn); } }] : [{ text: 'Đóng' }] });
+        let hien = [];
+        const loc = () => {
+          const q = norm($('#cb-q', m.el).value).split(/\s+/).filter(Boolean), hm = $('#cb-hm', m.el).value, cg = $('#cb-cg', m.el), dc = $('#cb-dc', m.el);
+          hien = ds.filter(b => (!hm || b.hm === hm) && q.every(w => b._s.indexOf(w) >= 0) && (!cg || !cg.checked || !b.nhom || (o.maNhom && b.nhom === o.maNhom)) && (!dc || !dc.checked || chon[b.id]));
+          const MAX = 500, tongDV = {};
+          Object.keys(chon).forEach(id => { const b = ds.find(y => y.id === id); if (b) tongDV[b.dv || '?'] = (tongDV[b.dv || '?'] || 0) + b.kl; });
+          $('#cb-info', m.el).innerHTML = hien.length + ' / ' + ds.length + ' công việc' + (hien.length > MAX ? ' (hiện ' + MAX + ' dòng đầu — gõ thêm từ khoá để lọc)' : '') + (o.multi && !o.xem ? ' · <b>đang chọn ' + Object.keys(chon).length + '</b>' + (Object.keys(tongDV).length && Object.keys(tongDV).length <= 4 ? ' — tổng KL: ' + Object.keys(tongDV).map(k => fmtNum(tongDV[k], 3) + ' ' + esc(k)).join(' · ') : '') : '');
+          $('#cb-b', m.el).innerHTML = hien.slice(0, MAX).map(b => '<tr data-id="' + esc(b.id) + '" class="click' + (chon[b.id] ? ' sel' : '') + '"><td>' + (o.multi && !o.xem ? '<input type="checkbox"' + (chon[b.id] ? ' checked' : '') + '>' : o.xem ? '' : '<button class="btn sm">Chọn</button>') + '</td><td class="small nowrap">' + esc(b.mh) + '</td><td>' + esc(b.ten) + (b.hp ? '' : ' <span class="xs muted" title="Chưa có hao phí (PTVT)">· chưa có hao phí</span>') + '</td><td class="small">' + esc(b.dv) + '</td><td class="num small">' + fmtNum(b.kl, 3) + '</td><td class="small muted">' + esc(b.hm + (b.nh ? ' / ' + b.nh : '')) + '</td><td class="small' + (b.nhom && b.nhom !== o.maNhom ? ' tx-warn' : '') + '">' + esc(b.tenNhom || '') + '</td></tr>').join('') || '<tr><td colspan="7">' + emptyState('Không có công việc khớp.') + '</td></tr>';
+          const all = $('#cb-all', m.el); if (all) all.checked = hien.length > 0 && hien.every(b => chon[b.id]);
+        };
+        $('#cb-b', m.el).addEventListener('click', e => {
+          const tr = e.target.closest('tr[data-id]'); if (!tr || o.xem) return; const id = tr.getAttribute('data-id');
+          if (!o.multi) { m.close(); o.onOk(ds.find(b => b.id === id)); return; }
+          if (chon[id]) delete chon[id]; else chon[id] = 1; loc();
+        });
+        const all = $('#cb-all', m.el); if (all) all.addEventListener('change', () => { hien.forEach(b => { if (all.checked) chon[b.id] = 1; else delete chon[b.id]; }); loc(); });
+        $('#cb-q', m.el).addEventListener('input', debounce(loc, 150));
+        ['#cb-hm', '#cb-cg', '#cb-dc'].forEach(s => { const el = $(s, m.el); if (el) el.addEventListener('change', loc); });
+        loc(); setTimeout(() => $('#cb-q', m.el).focus(), 40);
+      }).catch(fail);
+    }
+    function moChonCon(x) {
+      napBOQ().then(ds => moChonBOQ({ multi: true, maNhom: x.MaNhom, chon: ds.filter(b => b.nhom === x.MaNhom).map(b => b.id), title: 'Việc con của: ' + x.ten, xem: !sua,
+        onOk: (ids, mm, btn) => {
+          const khac = ids.map(id => ds.find(b => b.id === id)).filter(b => b && b.nhom && b.nhom !== x.MaNhom);
+          const go = () => withBusy(btn, () => api('apiTDDTGanViecCon', x.MaNhom, ids, o())).then(r => { mm.close(); toast('Đã lưu việc con: +' + r.them + ' / −' + r.bo + '; ghi ngày cho ' + r.soViec + ' công việc.', 'success'); lamMoi(); }).catch(fail);
+          if (khac.length) confirmDlg(khac.length + ' công việc đang thuộc công việc cha khác (' + uniq(khac.map(b => b.tenNhom)).slice(0, 3).join('; ') + ') sẽ chuyển sang "' + x.ten + '". Tiếp tục?', { ok: 'Chuyển' }).then(ok => ok && go()); else go();
+        } }));
+    }
+
+    /* ---------- Thêm / sửa công việc cha ---------- */
+    function moSua(x) {
+      const moi = !x, g = x ? x.goc : {}, cha = dsCha().filter(y => !x || y.MaNhom !== x.MaNhom), pds = uniq(dsCha().map(y => y.phanDoan).filter(Boolean));
+      const tdRow = t => '<div class="row td-r" style="gap:6px;margin-bottom:6px"><select class="inp sm td-ma" style="flex:1;min-width:200px"><option value="">— chọn công việc trước —</option>' + cha.map(y => '<option value="' + esc(y.MaNhom) + '"' + (t && t.ma === y.MaNhom ? ' selected' : '') + '>' + esc(y.stt + '. ' + y.ten) + '</option>').join('') + '</select>' +
+        '<select class="inp sm td-k" style="width:auto" title="FS: bắt đầu sau khi việc trước KẾT THÚC · SS: bắt đầu cùng lúc việc trước BẮT ĐẦU · FF: kết thúc cùng lúc việc trước kết thúc">' + [['FS', 'Nối tiếp (FS)'], ['SS', 'Cùng bắt đầu (SS)'], ['FF', 'Cùng kết thúc (FF)']].map(k => '<option value="' + k[0] + '"' + (t && t.kieu === k[0] ? ' selected' : '') + '>' + k[1] + '</option>').join('') + '</select>' +
+        '<input class="inp sm num td-l" style="width:70px" value="' + (t && t.lag ? t.lag : '') + '" placeholder="± ngày" title="Ngày trễ (+) / gối đầu (−)" inputmode="numeric"><button class="btn sm icon ghost td-x" type="button" aria-label="Bỏ"><i class="bi bi-x-lg"></i></button></div>';
+      const m = modal({ title: moi ? 'Thêm công việc cha' : 'Sửa: ' + x.ten, size: 'lg', sticky: true,
+        body: '<div class="fg"><div class="c8"><label class="lbl">Tên công việc (tự đặt) <span class="req">*</span></label><input class="inp" id="ms-ten"></div><div class="c4"><label class="lbl">Phân đoạn / hạng mục</label><input class="inp" id="ms-pd" list="ms-pdl" placeholder="VD: PHẦN MÓNG"><datalist id="ms-pdl">' + pds.map(p => '<option value="' + esc(p) + '">').join('') + '</datalist></div>' +
+          '<div class="c3"><label class="lbl">Đơn vị (tự đặt)</label><input class="inp" id="ms-dv"></div><div class="c4"><label class="lbl">Khối lượng</label><div class="row" style="gap:6px"><input class="inp num" id="ms-kl" inputmode="decimal" placeholder="tự điền hoặc chọn →"><button class="btn sm" type="button" id="ms-klc" title="Lấy khối lượng + đơn vị của 1 công việc trong hồ sơ dự thầu (tìm theo từ khoá)"><i class="bi bi-search"></i>Chọn</button></div><div class="xs muted" id="ms-kli"></div></div>' +
+          '<div class="c2"><label class="lbl">Số ngày <span class="req">*</span></label><input class="inp num" id="ms-sn" inputmode="numeric"></div><div class="c3"><label class="lbl">Bắt đầu cố định</label><input type="date" class="inp" id="ms-bd" title="Không bắt đầu sớm hơn ngày này (để trống = theo việc trước / ngày khởi công)"></div>' +
+          '<div class="c12"><label class="lbl">Công việc trước (liên kết)</label><div id="ms-td"></div><button class="btn sm" type="button" id="ms-tda"><i class="bi bi-plus"></i>Thêm việc trước</button><span class="xs muted"> Không có việc trước + không có ngày cố định → bắt đầu từ ngày khởi công.</span></div>' +
+          '<div class="c4"><label class="lbl">Nhân công (người/ngày)</label><input class="inp num" id="ms-nc" inputmode="decimal" title="Chỉ dùng cho đầu việc ngoài BOQ (không có việc con) — cộng vào biểu đồ nhân lực"></div><div class="c8"><label class="lbl">Nhân lực – thiết bị ghi trên sơ đồ</label><input class="inp" id="ms-nl" placeholder="để trống = tự tính (VD: 15 NC + 02 máy đào 0,8m3)"></div>' +
+          '<div class="c12"><label class="lbl">Ghi chú</label><input class="inp" id="ms-gc"></div></div>' +
+          (x && x.soCon ? '<p class="hint">Có ' + x.soCon + ' việc con — ngày trên bảng = bắt đầu sớm nhất / kết thúc muộn nhất của các việc con (việc con chưa chốt ngày theo đúng kế hoạch của công việc cha: ' + fmtDate(x.plan.bd) + ' → ' + fmtDate(x.plan.kt) + ').</p>' : '<p class="hint">Chưa gộp việc con: dùng cho đầu việc ngoài BOQ (lán trại, huy động, bàn giao…) — ngày theo số ngày + việc trước. Lưu xong có thể bấm <i class="bi bi-list-check"></i> để chọn việc con từ BOQ.</p>'),
+        buttons: [{ text: 'Huỷ' }, { text: moi ? 'Thêm' : 'Lưu', icon: 'bi-check2', cls: 'primary', fn: (mm, btn) => luu(mm, btn) }] });
+      const v = (id, val) => { $(id, m.el).value = val === undefined || val === null ? '' : val; };
+      v('#ms-ten', x ? x.ten : ''); v('#ms-pd', x ? x.phanDoan : (pds[pds.length - 1] || '')); v('#ms-dv', g.DonVi); v('#ms-kl', g.KhoiLuong === '' || g.KhoiLuong === undefined ? '' : String(g.KhoiLuong).replace('.', ','));
+      v('#ms-sn', x ? g.SoNgay || x.soNgay : 10); v('#ms-bd', x ? x.batDauCoDinh : ''); v('#ms-nc', g.NhanCongPT === '' || g.NhanCongPT === undefined ? '' : String(g.NhanCongPT).replace('.', ',')); v('#ms-nl', g.NhanLucTB); v('#ms-gc', g.GhiChu);
+      let maKL = x ? x.maCVCTKL : '';
+      const klInfo = () => {
+        const i = $('#ms-kli', m.el); let t = '';
+        if (maKL && st.boq) { const b = st.boq.find(y => y.id === maKL); if (b) t = 'Theo: ' + b.mh + ' — ' + b.ten.slice(0, 60); }
+        if (x && x.soCon && st.boq) { const dv = $('#ms-dv', m.el).value.trim(), con = st.boq.filter(b => b.nhom === x.MaNhom && dv && norm(b.dv) === norm(dv)); if (con.length) t += (t ? ' · ' : '') + '<a href="#" id="ms-tong">Tổng KL ' + con.length + ' việc con cùng ĐV: ' + fmtNum(con.reduce((a, b) => a + b.kl, 0), 3) + '</a>'; }
+        i.innerHTML = t; const a = $('#ms-tong', i); if (a) a.addEventListener('click', e => { e.preventDefault(); const dv = $('#ms-dv', m.el).value.trim(); $('#ms-kl', m.el).value = String(Math.round(st.boq.filter(b => b.nhom === x.MaNhom && norm(b.dv) === norm(dv)).reduce((s2, b) => s2 + b.kl, 0) * 1e4) / 1e4).replace('.', ','); maKL = ''; klInfo(); });
+      };
+      napBOQ().then(klInfo).catch(() => {});
+      $('#ms-dv', m.el).addEventListener('input', debounce(klInfo, 200));
+      $('#ms-kl', m.el).addEventListener('input', () => { maKL = ''; klInfo(); });
+      $('#ms-klc', m.el).addEventListener('click', () => moChonBOQ({ multi: false, title: 'Chọn công việc trong hồ sơ dự thầu để lấy khối lượng', onOk: b => { $('#ms-kl', m.el).value = String(b.kl).replace('.', ','); $('#ms-dv', m.el).value = b.dv || ''; if (!$('#ms-ten', m.el).value.trim()) $('#ms-ten', m.el).value = b.ten; maKL = b.id; klInfo(); } }));
+      const tdBox = $('#ms-td', m.el), themTD = t => { tdBox.insertAdjacentHTML('beforeend', tdRow(t)); };
+      ((x && x.tienDe) || []).forEach(themTD);
+      $('#ms-tda', m.el).addEventListener('click', () => themTD(null));
+      tdBox.addEventListener('click', e => { const b = e.target.closest('.td-x'); if (b) b.closest('.td-r').remove(); });
+      function luu(mm, btn) {
+        const ten = $('#ms-ten', mm.el).value.trim(), sn = Math.round(parseNum($('#ms-sn', mm.el).value));
+        if (!ten) return toast('Nhập tên công việc.', 'error'); if (!(sn >= 1)) return toast('Số ngày phải ≥ 1.', 'error');
+        const tds = $$('.td-r', tdBox).map(r => ({ ma: $('.td-ma', r).value, kieu: $('.td-k', r).value, lag: Math.round(parseNum($('.td-l', r).value) || 0) })).filter(t => t.ma);
+        const klRaw = $('#ms-kl', mm.el).value.trim(), nc = $('#ms-nc', mm.el).value.trim();
+        const rec = { TenNhom: ten, PhanDoan: $('#ms-pd', mm.el).value.trim(), DonVi: $('#ms-dv', mm.el).value.trim(), KhoiLuong: klRaw === '' ? '' : parseNum(klRaw), MaCVCTKL: klRaw === '' ? '' : maKL || '', SoNgay: sn,
+          TienDe: tds.map(t => t.ma + (t.kieu !== 'FS' ? t.kieu : '') + (t.lag ? (t.lag > 0 ? '+' : '') + t.lag : '')).join(', '), BatDauCoDinh: $('#ms-bd', mm.el).value, NhanCongPT: nc === '' ? '' : parseNum(nc), NhanLucTB: $('#ms-nl', mm.el).value.trim(), GhiChu: $('#ms-gc', mm.el).value.trim() };
+        if (x) rec.MaNhom = x.MaNhom;
+        withBusy(btn, () => api('apiTDDTLuuNhom', st.maCT, rec, o())).then(r => { mm.close(); toast((moi ? 'Đã thêm' : 'Đã lưu') + (r.soViec ? ' — ghi ngày cho ' + r.soViec + ' việc con' : '') + '.', 'success'); lamMoi();
+          if (moi && sua) confirmDlg('Chọn việc con trong BOQ cho "' + ten + '" ngay bây giờ?\n(Bỏ qua nếu đây là đầu việc ngoài BOQ.)', { ok: 'Chọn việc con' }).then(ok => { if (ok) napBOQ().then(() => moChonCon({ MaNhom: r.MaNhom, ten: ten })); });
+        }).catch(fail);
+      }
+    }
+
+    /* ---------- Đầu việc ngoài BOQ ---------- */
+    function moPhuTro() {
+      api('apiTDDTMauPhuTro').then(mau => {
+        const vt = { dau: 'Đầu tiến độ (từ khởi công)', cuoi: 'Cuối tiến độ (nối sau việc muộn nhất)', giua: 'Tự đặt việc trước sau' };
+        const dong = (x, i, tuNhap) => '<tr data-i="' + i + '"><td><input type="checkbox" class="pt-c" checked></td><td>' + (tuNhap ? '<input class="inp sm pt-t" placeholder="Tên đầu việc…">' : '<input class="inp sm pt-t" value="' + esc(x.ten) + '">') + '</td>' +
+          '<td><select class="inp sm pt-v" style="width:auto">' + Object.keys(vt).map(k => '<option value="' + k + '"' + ((x ? x.viTri : 'giua') === k ? ' selected' : '') + '>' + vt[k] + '</option>').join('') + '</select></td><td><input class="inp sm num pt-n" style="width:64px" value="' + (x ? x.soNgay : 5) + '"></td><td><input class="inp sm num pt-p" style="width:64px" value="' + (x ? x.nc : '') + '"></td></tr>';
+        const m = modal({ title: 'Thêm đầu việc ngoài BOQ', size: 'lg', sticky: true,
+          body: '<p class="small muted">Các công tác thường có trên bảng tiến độ nhưng không có trong BOQ. Bỏ tích đầu việc không cần, sửa tên / số ngày / số nhân công (người/ngày, cộng vào biểu đồ nhân lực). Đầu việc "đầu tiến độ" vào phân đoạn CÔNG TÁC CHUẨN BỊ; "cuối tiến độ" vào CÔNG TÁC HOÀN THIỆN VÀ BÀN GIAO, nối tiếp nhau sau công việc kết thúc muộn nhất. Nên thêm <b>trước</b> khi "Tạo nhanh từ BOQ" để các hạng mục tự nối sau việc huy động.</p>' +
+            '<div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>Đầu việc</th><th>Vị trí</th><th class="num">Số ngày</th><th class="num">NC/ngày</th></tr></thead><tbody id="pt-b">' + mau.map((x, i) => dong(x, i)).join('') + '</tbody></table></div><button class="btn sm mt-2" id="pt-a"><i class="bi bi-plus"></i>Đầu việc khác…</button>',
+          buttons: [{ text: 'Huỷ' }, { text: 'Thêm vào tiến độ', icon: 'bi-check2', cls: 'primary', fn: (mm, btn) => {
+            const ds = $$('#pt-b tr', mm.el).filter(tr => $('.pt-c', tr).checked).map(tr => ({ ten: $('.pt-t', tr).value.trim(), viTri: $('.pt-v', tr).value, soNgay: parseNum($('.pt-n', tr).value) || 5, nc: parseNum($('.pt-p', tr).value) || '' })).filter(x => x.ten);
+            if (!ds.length) return toast('Chưa chọn đầu việc nào.', 'error');
+            withBusy(btn, () => api('apiTDDTThemPhuTro', st.maCT, ds)).then(r => { mm.close(); toast('Đã thêm ' + r.soNhom + ' đầu việc. Sửa việc trước / số ngày bằng nút bút chì.', 'success'); lamMoi(); }).catch(fail);
+          } }] });
+        let n = mau.length; $('#pt-a', m.el).addEventListener('click', () => { $('#pt-b', m.el).insertAdjacentHTML('beforeend', dong(null, n++, true)); const t = $$('#pt-b .pt-t', m.el).pop(); t.focus(); });
+      }).catch(fail);
+    }
+
+    /* ---------- Tạo nhanh từ BOQ ---------- */
+    function moTaoNhanh(btn0) {
+      const tk = st.d ? st.d.thongKe : {};
+      const m = modal({ title: 'Tạo nhanh công việc cha từ BOQ', size: 'md',
+        body: '<p class="small">Gộp <b>' + (tk.chuaGop !== undefined ? tk.chuaGop : '') + '</b> công việc BOQ chưa gộp thành công việc cha theo cấu trúc file dự thầu. Công việc cha đã có giữ nguyên.</p>' +
+          '<div class="fg"><div class="c12"><label class="lbl">Mỗi công việc cha là</label><select class="inp" id="tn-theo"><option value="nhom">Một nhóm công việc (1, 2, 3… trong từng hạng mục) — chi tiết</option><option value="hangmuc">Một hạng mục (A, B, C…) — gọn</option></select></div>' +
+          '<div class="c6"><label class="lbl">Tổ đội bình quân (người)</label><input class="inp num" id="tn-td" value="15" inputmode="numeric" title="Số ngày = tổng công của nhóm ÷ (số người × 26/30), trong khoảng 3–90 ngày"></div><div class="c6"><label class="lbl">Số ngày khi chưa có hao phí</label><input class="inp num" id="tn-sn" value="10" inputmode="numeric"></div>' +
+          '<div class="c12"><label class="small row" style="gap:6px"><input type="checkbox" id="tn-nt" checked>Nối tiếp trong cùng hạng mục; hạng mục sau bắt đầu khi nhóm đầu của hạng mục trước xong (cuốn chiếu)</label></div></div>' +
+          '<p class="hint">Sau khi tạo: đổi tên, ĐV, KL, số ngày, việc trước của từng công việc cha; chuyển việc con giữa các công việc cha bằng nút <i class="bi bi-list-check"></i>.</p>',
+        buttons: [{ text: 'Huỷ' }, { text: 'Tạo', icon: 'bi-magic', cls: 'primary', fn: (mm, btn) => withBusy(btn, () => api('apiTDDTTaoTuBOQ', st.maCT, o({ theo: $('#tn-theo', mm.el).value, toDoi: parseNum($('#tn-td', mm.el).value) || 15, soNgay: parseNum($('#tn-sn', mm.el).value) || 10, noiTiep: $('#tn-nt', mm.el).checked })))
+          .then(r => { mm.close(); toast('Đã tạo ' + r.soNhom + ' công việc cha từ ' + r.soViec + ' công việc BOQ.', 'success'); lamMoi(); }).catch(fail) }] });
+      return m;
+    }
+
+    /* ---------- Nút trên thanh công cụ ---------- */
+    const on = (id, fn) => { const el = $(id, ctx.el); if (el) el.addEventListener('click', e => fn(e.currentTarget)); };
+    on('#tp-them', () => moSua(null));
+    on('#tp-pt', moPhuTro);
+    on('#tp-nhanh', moTaoNhanh);
+    on('#tp-ap', btn => confirmDlg('Ghi ngày kế hoạch (bắt đầu / kết thúc) cho mọi công việc BOQ theo kế hoạch công việc cha, khởi công ' + fmtDate(kc()) + '?\nViệc con đã chốt ngày giữ nguyên.', { ok: 'Áp dụng' })
+      .then(ok => ok && withBusy(btn, () => api('apiTDDTApDung', st.maCT, o())).then(r => { toast('Đã ghi ngày cho ' + r.soViec + ' công việc BOQ.', 'success'); lamMoi(); }).catch(fail)));
+    on('#tp-xls', btn => withBusy(btn, () => api('apiXuatTDDTXlsx', st.maCT, o())).then(r => { downloadBinary(r.filename, r.base64, r.mime); toast('Đã xuất: Tiến độ (kỳ 10 ngày, A3) + Nhân lực + Thiết bị + Kế hoạch vật liệu — sửa ô nền vàng (ngày khởi công, số ngày), mọi số liệu tự tính lại.', 'success', 6000); }).catch(fail));
+    const f = $('#tp-file', ctx.el);
+    if (f) f.addEventListener('change', e => {
+      const file = e.target.files && e.target.files[0]; e.target.value = ''; if (!file) return;
+      const t = toast('Đang đọc "' + file.name + '"…', 'info', 60000);
+      docFileExcel_(file, 30, 60000).then(sheets => docHaoPhiDT_(st.maCT, sheets.filter(s => s.rows && s.rows.length), file.name, -1)).then(k => {
+        t.remove();
+        if (!k || !k.congViec) return modal({ title: 'Không đọc được hao phí', body: '<p>' + esc((k && k.thongBao) || 'Không thấy sheet phân tích vật tư (PTVT) hay tổng hợp THVL / THNC / THM trong file.') + '</p>' });
+        modal({ title: 'Đã đọc hao phí từ file dự thầu', body: '<p>' + k.nguon.map(n => '"' + esc(n.ten) + '" (' + esc(n.kieu) + ')').join(', ') + ': <b>' + k.congViec + '</b> công việc có hao phí.</p><p>Gắn được vào BOQ: <b>' + k.ghep + '</b> / ' + k.boq + ' công việc (' + fmtNum(k.thanhPhan || 0) + ' dòng vật liệu / nhân công / máy' + (k.xoaCu ? ', thay ' + k.xoaCu + ' dòng cũ' : '') + ').</p>' +
+          (k.khong ? '<p class="tx-warn">' + k.khong + ' công việc trong file không khớp BOQ (mã hiệu đơn giá + khối lượng), VD:</p><ul class="small">' + k.viDuKhong.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul><p class="hint">Kiểm tra BOQ đã nhập đúng file dự thầu chưa (trang "Nhập BOQ").</p>' : '') });
+        lamMoi();
+      }).catch(err => { t.remove(); fail(err); });
+    });
+  });
+} };
 
 /* ===== 70_portal: cổng chủ đầu tư / giám sát (chỉ xem) ===== */
 function renderPortal(p) {
